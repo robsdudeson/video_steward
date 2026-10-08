@@ -1,0 +1,14 @@
+# video-steward manifest for the Aaahh!!! Real Monsters DVD archive.
+#
+# Episode numbers in [disc.*] are load-bearing: 0 means "unmapped TODO" and
+# blocks conversion. Files you do not want archived go under [ignore.*].
+
+[show]
+tmdb_id = 0 # run: npm run archive -- search "Aaahh Real Monsters"
+name = "Aaahh Real Monsters"
+season = 1
+
+[paths]
+source_root = "C:/Users/rd/Videos"
+local_output = "C:/Users/rd/Videos/_converted"
+destination_root = "Z:/tm_share/videos/shows"

@@ -1,0 +1,28 @@
+{
+  "name": "video-steward",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Steward for DVD-rip archives: scan discs, map titles to episodes, remux MKV to MP4, copy to a media share.",
+  "type": "module",
+  "scripts": {
+    "archive": "tsx archive-dvd.ts",
+    "dry-run": "tsx archive-dvd.ts --config archive-dvd.toml --dry-run",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "commander": "^15.0.0",
+    "dotenv": "^18.0.6",
+    "smol-toml": "^1.9.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}
