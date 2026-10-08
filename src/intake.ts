@@ -52,9 +52,10 @@ export async function scanDiscFolder(
 
 export function formatDuration(sec: number | null): string {
   if (sec === null || !Number.isFinite(sec)) return "duration unknown";
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = Math.round(sec % 60);
+  const total = Math.round(sec);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 

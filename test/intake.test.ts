@@ -83,6 +83,11 @@ describe("formatters", () => {
     expect(formatDuration(null)).toBe("duration unknown");
   });
 
+  it("never lets seconds round up to 60", () => {
+    expect(formatDuration(719.6)).toBe("00:12:00");
+    expect(formatDuration(3599.9)).toBe("01:00:00");
+  });
+
   it("formats sizes in human units", () => {
     expect(formatSize(210 * 1024 ** 2)).toBe("210 MB");
     expect(formatSize(1.2 * 1024 ** 3)).toBe("1.2 GB");

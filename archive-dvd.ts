@@ -220,7 +220,8 @@ function printTable(plan: { items: import("./src/plan.js").WorkItem[]; roots: im
     const dur = item.durationSec !== null ? formatDuration(item.durationSec) : "?";
     console.log(`${item.disc}/${item.file}   (${size}, ${dur}${item.streamNote ? `, ${item.streamNote}` : ""})`);
     console.log(`  -> Ep ${String(item.episode).padStart(2, "0")}  "${item.title?.title}" [${item.title?.source}]`);
-    console.log(`     local: ${path.relative(process.cwd(), item.localOut)}`);
+    const relLocal = path.relative(process.cwd(), item.localOut);
+    console.log(`     local: ${relLocal.startsWith("..") ? item.localOut : relLocal}`);
     console.log(`     dest:  ${item.destPath}`);
   }
   console.log("");

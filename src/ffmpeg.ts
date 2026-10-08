@@ -128,12 +128,18 @@ function typeOrdinal(probe: MediaProbe, target: ProbeStream): number {
 export function buildRemuxArgs(input: string, outputTmp: string, probe: MediaProbe, plan: StreamPlan): string[] {
   const args = ["-y", "-i", input, "-map", "0:v:0", "-c:v", "copy"];
   for (const a of plan.audio) {
-    const ord = typeOrdinal(probe, a);
-    args.push("-map", `0:a:${ord}`, "-c:a", "copy");
+    args.push("-map", `0:a:${typeOrdinal(probe, a)}`);
   }
+  if (plan.audio.length > 0) args.push("-c:a", "copy");
+  // Group subtitles by output codec so each -c:s applies to its mapped group.
+  const groups = new Map<string, number[]>();
   for (const sub of plan.subtitles) {
     const ord = typeOrdinal(probe, sub.stream);
-    args.push("-map", `0:s:${ord}`, "-c:s", sub.outCodec);
+    groups.set(sub.outCodec, [...(groups.get(sub.outCodec) ?? []), ord]);
+  }
+  for (const [codec, ords] of groups) {
+    for (const ord of ords) args.push("-map", `0:s:${ord}`);
+    args.push("-c:s", codec);
   }
   args.push(outputTmp);
   return args;

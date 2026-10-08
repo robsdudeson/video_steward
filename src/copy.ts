@@ -16,7 +16,7 @@ export async function copyFinal(opts: {
   src: string;
   destDir: string;
   fileName: string;
-  force: boolean;
+  force?: boolean | undefined;
 }): Promise<CopyResult> {
   const finalPath = path.join(opts.destDir, opts.fileName);
 

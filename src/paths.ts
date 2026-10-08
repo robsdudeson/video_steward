@@ -113,16 +113,14 @@ export function runPreflight(opts: {
     info.source_root = opts.sourceRoot;
   }
 
-  const outDir = existsSync(opts.localOutput) ? opts.localOutput : null;
-  if (outDir && !statSync(outDir).isDirectory()) {
+  if (existsSync(opts.localOutput) && !statSync(opts.localOutput).isDirectory()) {
     problems.push(`Local output path exists but is not a directory: ${opts.localOutput}`);
-  } else if (!outDir) {
-    try {
-      // Do not create it during pure checks; just verify the parent allows it.
-      const parent = path.dirname(opts.localOutput);
-      if (!existsSync(parent)) throw new Error("missing parent");
-    } catch {
-      problems.push(`Local output cannot be created: ${opts.localOutput}`);
+  } else if (!existsSync(opts.localOutput)) {
+    // The tool creates the output tree at runtime; just verify some ancestor exists.
+    let anc = path.dirname(opts.localOutput);
+    while (anc !== path.dirname(anc) && !existsSync(anc)) anc = path.dirname(anc);
+    if (!existsSync(anc)) {
+      problems.push(`Local output cannot be created: ${opts.localOutput} (no existing ancestor directory)`);
     }
   }
 
@@ -135,6 +133,21 @@ export function runPreflight(opts: {
       problems.push(`${label} not found: "${requested}" (not on PATH). Set paths.${label} in the manifest or fix PATH.`);
     } else {
       info[label] = resolved;
+    }
+  }
+
+  // Under WSL, Windows-built media binaries can only see drive-mounted paths (/mnt/<drive>/...).
+  const isWindowsBin = (b: string | undefined) => !!b && b.toLowerCase().endsWith(".exe");
+  if (detectRuntime() === "wsl" && (isWindowsBin(info.ffmpeg) || isWindowsBin(info.ffprobe))) {
+    for (const [label, p] of [
+      ["source_root", opts.sourceRoot],
+      ["local_output", opts.localOutput],
+    ] as const) {
+      if (!/^\/mnt\/[a-z]\//i.test(p)) {
+        problems.push(
+          `${label} = "${p}" is not visible to Windows-built ffmpeg under WSL. Use a drive-mounted path (e.g. "C:/Users/rd/Videos/_converted"), or install a Linux ffmpeg and set paths.ffmpeg in the manifest.`,
+        );
+      }
     }
   }
 

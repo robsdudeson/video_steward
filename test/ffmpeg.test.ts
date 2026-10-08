@@ -90,8 +90,7 @@ describe("buildRemuxArgs", () => {
     expect(args).toEqual([
       "-y", "-i", "in.mkv",
       "-map", "0:v:0", "-c:v", "copy",
-      "-map", "0:a:0", "-c:a", "copy",
-      "-map", "0:a:1", "-c:a", "copy",
+      "-map", "0:a:0", "-map", "0:a:1", "-c:a", "copy",
       "-map", "0:s:0", "-c:s", "mov_text",
       "out.tmp.mp4",
     ]);
