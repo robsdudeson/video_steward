@@ -4,7 +4,7 @@
 # blocks conversion. Files you do not want archived go under [ignore.*].
 
 [show]
-tmdb_id = 0 # run: npm run archive -- search "Aaahh Real Monsters"
+tmdb_id = 2429
 name = "Aaahh Real Monsters"
 season = 1
 
@@ -21,30 +21,33 @@ destination_root = "Z:/video/shows"
 [share]
 backend = "auto"
 
+# Episode order follows the DVD PGC/menu order (t-number in filename).
+# All 24 files are complete episodes; 11 lack the ~47s opening theme
+# (disc-authoring choice, verified via chapter structure) and are archived as-is.
 [disc.ARM_S1_D1]
-  "B2_t07.mkv" = 0 # TODO episode; 00:23:48; 1.1 GB
-  "B3_t09.mkv" = 0 # TODO episode; 00:23:41; 1.1 GB
-  "B5_t08.mkv" = 0 # TODO episode; 00:11:51; 565 MB ; likely extra
-  "B6_t10.mkv" = 0 # TODO episode; 00:11:51; 525 MB ; likely extra
-  "B7_t11.mkv" = 0 # TODO episode; 00:23:41; 1.1 GB
-  "B8_t12.mkv" = 0 # TODO episode; 00:11:52; 526 MB ; likely extra
-  "D2_t00.mkv" = 0 # TODO episode; 00:23:35; 1.1 GB
-  "D3_t01.mkv" = 0 # TODO episode; 00:23:50; 1.1 GB
-  "D4_t03.mkv" = 0 # TODO episode; 00:23:54; 1.1 GB
-  "D5_t05.mkv" = 0 # TODO episode; 00:23:42; 1.1 GB
-  "D7_t02.mkv" = 0 # TODO episode; 00:11:51; 510 MB ; likely extra
-  "D8_t04.mkv" = 0 # TODO episode; 00:11:55; 532 MB ; likely extra
-  "D9_t06.mkv" = 0 # TODO episode; 00:11:45; 544 MB ; likely extra
+  "D2_t00.mkv" = 1   # 00:23:35; 1.1 GB
+  "D3_t01.mkv" = 2   # 00:23:50; 1.1 GB
+  "D7_t02.mkv" = 3   # 00:11:51; 510 MB; no opening theme
+  "D4_t03.mkv" = 4   # 00:23:54; 1.1 GB
+  "D8_t04.mkv" = 5   # 00:11:55; 532 MB; no opening theme
+  "D5_t05.mkv" = 6   # 00:23:42; 1.1 GB
+  "D9_t06.mkv" = 7   # 00:11:45; 544 MB; no opening theme
+  "B2_t07.mkv" = 8   # 00:23:48; 1.1 GB
+  "B5_t08.mkv" = 9   # 00:11:51; 565 MB; no opening theme
+  "B3_t09.mkv" = 10  # 00:23:41; 1.1 GB
+  "B6_t10.mkv" = 11  # 00:11:51; 525 MB; no opening theme
+  "B7_t11.mkv" = 12  # 00:23:41; 1.1 GB
+  "B8_t12.mkv" = 13  # 00:11:52; 526 MB; no opening theme
 
 [disc.ARM_S1_D2]
-  "C10_t07.mkv" = 0 # TODO episode; 00:11:46; 621 MB ; likely extra
-  "C2_t00.mkv" = 0 # TODO episode; 00:23:41; 1.2 GB
-  "C3_t02.mkv" = 0 # TODO episode; 00:23:42; 1.2 GB
-  "C4_t04.mkv" = 0 # TODO episode; 00:23:57; 1.2 GB
-  "C5_t06.mkv" = 0 # TODO episode; 00:23:43; 1.2 GB
-  "C7_t01.mkv" = 0 # TODO episode; 00:11:46; 592 MB ; likely extra
-  "C8_t03.mkv" = 0 # TODO episode; 00:11:51; 615 MB ; likely extra
-  "C9_t05.mkv" = 0 # TODO episode; 00:12:00; 640 MB ; likely extra
-  "D2_t08.mkv" = 0 # TODO episode; 00:23:40; 1.2 GB
-  "D3_t09.mkv" = 0 # TODO episode; 00:23:54; 1.2 GB
-  "D5_t10.mkv" = 0 # TODO episode; 00:11:57; 606 MB ; likely extra
+  "C2_t00.mkv" = 14  # 00:23:41; 1.2 GB
+  "C7_t01.mkv" = 15  # 00:11:46; 592 MB; no opening theme
+  "C3_t02.mkv" = 16  # 00:23:42; 1.2 GB
+  "C8_t03.mkv" = 17  # 00:11:51; 615 MB; no opening theme
+  "C4_t04.mkv" = 18  # 00:23:57; 1.2 GB
+  "C9_t05.mkv" = 19  # 00:12:00; 640 MB; no opening theme
+  "C5_t06.mkv" = 20  # 00:23:43; 1.2 GB
+  "C10_t07.mkv" = 21 # 00:11:46; 621 MB; no opening theme
+  "D2_t08.mkv" = 22  # 00:23:40; 1.2 GB
+  "D3_t09.mkv" = 23  # 00:23:54; 1.2 GB
+  "D5_t10.mkv" = 24  # 00:11:57; 606 MB; no opening theme

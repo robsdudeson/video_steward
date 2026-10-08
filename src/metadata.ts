@@ -29,7 +29,10 @@ export function loadApiKey(configDir: string): string {
 }
 
 async function tmdbGet(apiKey: string, route: string): Promise<unknown> {
-  const url = `${TMDB_BASE}${route}?api_key=${encodeURIComponent(apiKey)}`;
+  // Routes may already carry query strings (e.g. /search/tv?query=...), so
+  // append api_key through URLSearchParams instead of a second "?".
+  const url = new URL(`${TMDB_BASE}${route}`);
+  url.searchParams.set("api_key", apiKey);
   let res: Response;
   try {
     res = await fetch(url);
