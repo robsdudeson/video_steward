@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { AppConfig, buildManifestView, DiscItem, ManifestView } from "./config.js";
-import { copyFinal } from "./copy.js";
+import { copyFinal, copyFinalWindows, ShareBackendKind, windowsPathsExist } from "./copy.js";
 import { cleanupTempIfEmpty, FfmpegError, probeMedia, remuxToTmp } from "./ffmpeg.js";
 import { Logger } from "./logger.js";
 import { outputFileName, showSeasonDir } from "./naming.js";
@@ -194,10 +194,18 @@ export async function execute(
   items: WorkItem[],
   bins: { ffmpeg: string; ffprobe: string },
   log: Logger,
+  backend: ShareBackendKind = "native",
 ): Promise<Summary> {
   const summary: Summary = { converted: 0, skipped: 0, copied: 0, copySkipped: 0, failed: 0, failures: [] };
   const runtime = detectRuntime();
   const mediaPath = (p: string) => toMediaToolPath(p, runtime);
+
+  // Under the windows backend the share is not visible to Node fs; ask
+  // PowerShell once which destination files already exist.
+  let existingDest = new Set<string>();
+  if (backend === "windows" && !opts.skipCopy && items.length > 0) {
+    existingDest = await windowsPathsExist(items.map((i) => i.destPath));
+  }
 
   const season = opts.config.show.season;
   for (const item of items) {
@@ -238,18 +246,34 @@ export async function execute(
         continue;
       }
 
-      const copy = await copyFinal({
-        src: item.localOut,
-        destDir: path.dirname(item.destPath),
-        fileName: path.basename(item.destPath),
-        force: opts.force,
-      });
-      if (copy.status === "skipped-existing") {
-        summary.skipped++;
-        log.info(`${label} destination already exists, skipped`);
+      if (backend === "windows") {
+        if (!opts.force && existingDest.has(item.destPath)) {
+          summary.skipped++;
+          log.info(`${label} destination already exists, skipped`);
+        } else {
+          await copyFinalWindows({
+            src: item.localOut,
+            destDir: path.dirname(item.destPath),
+            fileName: path.basename(item.destPath),
+          });
+          existingDest.add(item.destPath);
+          summary.copied++;
+          log.info(`${label} copied to ${item.destPath} (via windows)`);
+        }
       } else {
-        summary.copied++;
-        log.info(`${label} copied to ${item.destPath}`);
+        const copy = await copyFinal({
+          src: item.localOut,
+          destDir: path.dirname(item.destPath),
+          fileName: path.basename(item.destPath),
+          force: opts.force,
+        });
+        if (copy.status === "skipped-existing") {
+          summary.skipped++;
+          log.info(`${label} destination already exists, skipped`);
+        } else {
+          summary.copied++;
+          log.info(`${label} copied to ${item.destPath}`);
+        }
       }
     } catch (err) {
       summary.failed++;

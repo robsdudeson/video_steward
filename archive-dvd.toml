@@ -11,7 +11,15 @@ season = 1
 [paths]
 source_root = "C:/Users/rd/Videos"
 local_output = "C:/Users/rd/Videos/_converted"
-destination_root = "Z:/tm_share/videos/shows"
+destination_root = "Z:/video/shows"
+
+# How finished files are written to the destination:
+#   auto    = native filesystem when reachable (mounted share / Windows),
+#             otherwise PowerShell under WSL (uses Windows' saved share creds)
+#   native  = always Node fs (requires the share mounted at the path above)
+#   windows = always PowerShell (WSL interop; Z: drive as mapped in Windows)
+[share]
+backend = "auto"
 
 [disc.ARM_S1_D1]
   "B2_t07.mkv" = 0 # TODO episode; 00:23:48; 1.1 GB

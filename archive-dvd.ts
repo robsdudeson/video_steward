@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import path from "node:path";
+import { resolveShareBackend } from "./src/copy.js";
 import { buildManifestView, ConfigError, loadConfig, validateManifest } from "./src/config.js";
 import { appendDiscToManifest, formatDuration, formatSize, renderStarterTOML, scanDiscFolder } from "./src/intake.js";
 import { Logger } from "./src/logger.js";
@@ -126,6 +127,7 @@ program
       const sourceRoot = resolveConfiguredPath(config.paths.source_root, configDir, runtime);
       const localOutput = resolveConfiguredPath(config.paths.local_output, configDir, runtime);
       const destRoot = resolveConfiguredPath(config.paths.destination_root, configDir, runtime);
+      const backend = resolveShareBackend(config.share.backend, destRoot);
       const preflight = runPreflight({
         sourceRoot,
         localOutput,
@@ -134,6 +136,7 @@ program
         ffprobeBin: config.paths.ffprobe,
         skipCopy: !!opts.skipCopy,
         dryRun: !!opts.dryRun,
+        shareBackend: backend,
       });
       if (!preflight.ok) {
         for (const p of preflight.problems) log.error(p);
@@ -176,6 +179,7 @@ program
       await attachEvidence(plan.items, ffprobeBin, log);
 
       // 10. Table
+      if (!opts.skipCopy) log.info(`Destination copy via ${backend} backend`);
       printTable(plan);
 
       if (opts.dryRun) {
@@ -189,7 +193,7 @@ program
         log.error("ffmpeg resolved during preflight but is unavailable; aborting.");
         process.exit(1);
       }
-      const summary = await execute(runOpts, plan.items, { ffmpeg: ffmpegBin, ffprobe: ffprobeBin }, log);
+      const summary = await execute(runOpts, plan.items, { ffmpeg: ffmpegBin, ffprobe: ffprobeBin }, log, backend);
       log.info(
         `Done. converted=${summary.converted} skipped=${summary.skipped} copied=${summary.copied} copy-skipped=${summary.copySkipped} failed=${summary.failed}`,
       );

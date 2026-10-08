@@ -48,7 +48,14 @@ season = 1
 [paths]
 source_root = "C:/Users/rd/Videos"        # contains the disc folders
 local_output = "C:/Users/rd/Videos/_converted"
-destination_root = "Z:/tm_share/videos/shows"
+destination_root = "Z:/video/shows"
+
+# auto    = native fs when the destination is reachable (mounted share / Windows),
+#           otherwise PowerShell under WSL (uses Windows' saved share credentials)
+# native  = always Node fs (share must be mounted at destination_root)
+# windows = always PowerShell via WSL interop (Z: drive as mapped in Windows)
+[share]
+backend = "auto"
 
 [disc.ARM_S1_D1]
 "B3_t09.mkv" = 1          # 0 = unmapped TODO (blocks conversion)
@@ -76,7 +83,10 @@ translated to `/mnt/...` automatically.
 
 - Dry-run changes nothing.
 - Conversions write to `.tmp.mp4` and rename on success; zero-byte temps are removed.
-- Destination copies go to a temp file first, then rename.
+- Destination copies go to a hidden `.tmp` file first, then rename (same under
+  the PowerShell backend). Under WSL with `share.backend = "auto"`/`"windows"`,
+  copies run through `powershell.exe`, so the share does not need a Linux mount —
+  Windows' own saved credentials are used.
 - Existing local/destination files are skipped unless `--force`.
 - Unmapped or TODO-mapped `.mkv` files block the run until you map or ignore them.
 

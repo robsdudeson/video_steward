@@ -23,6 +23,12 @@ export const configSchema = z.object({
   disc: z.record(z.string(), episodeMapSchema).default({}),
   ignore: z.record(z.string(), stringMapSchema).default({}),
   title_override: z.record(z.string(), stringMapSchema).default({}),
+  share: z
+    .object({
+      /** auto = native fs when the destination is reachable, else PowerShell (WSL); native; windows */
+      backend: z.enum(["auto", "native", "windows"]).default("auto"),
+    })
+    .default({ backend: "auto" }),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

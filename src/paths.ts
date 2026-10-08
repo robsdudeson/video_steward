@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { ShareBackendKind } from "./copy.js";
 
 export type Runtime = "windows" | "wsl" | "posix";
 
@@ -103,6 +104,7 @@ export function runPreflight(opts: {
   ffprobeBin: string;
   skipCopy: boolean;
   dryRun: boolean;
+  shareBackend?: ShareBackendKind | undefined;
 }): PreflightResult {
   const problems: string[] = [];
   const info: Record<string, string> = {};
@@ -152,9 +154,18 @@ export function runPreflight(opts: {
   }
 
   if (!opts.skipCopy && !opts.dryRun) {
-    if (!existsSync(opts.destinationRoot)) {
+    if (opts.shareBackend === "windows") {
+      // Destination is reached through Windows PowerShell, which uses
+      // Windows' own saved share credentials; only interop is required.
+      const ps = resolveBinary("powershell.exe");
+      if (!ps) {
+        problems.push('share.backend = "windows" requires powershell.exe on PATH (WSL interop).');
+      } else {
+        info.destination_root = `${opts.destinationRoot} (via windows)`;
+      }
+    } else if (!existsSync(opts.destinationRoot)) {
       problems.push(
-        `Destination root is not accessible: ${opts.destinationRoot}. Mount the share (e.g. /mnt/z under WSL), run from Windows, or use --skip-copy.`,
+        `Destination root is not accessible: ${opts.destinationRoot}. Mount the share (e.g. /mnt/z under WSL), run from Windows, or set share.backend = "windows" in the manifest.`,
       );
     } else {
       info.destination_root = opts.destinationRoot;
