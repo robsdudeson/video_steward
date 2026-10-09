@@ -91,6 +91,47 @@ export function resolveEpisodeTitle(opts: {
   return { title: ep.name, source: "tmdb" };
 }
 
+export type CountVerdict = "match" | "mismatch-low" | "mismatch-high";
+
+export interface SeasonCountCheck {
+  /** Number of files classified as full or no-theme. */
+  classified: number;
+  /** Episode count TMDb reports for the season (0 when unavailable). */
+  tmdbEpisodes: number;
+  verdict: CountVerdict;
+  hint: string;
+}
+
+/**
+ * Cross-check episode-classified file count against TMDb's season episode
+ * count. Pure function — no network; the caller supplies both numbers.
+ */
+export function checkSeasonCount(classified: number, tmdbEpisodes: number): SeasonCountCheck {
+  if (classified === tmdbEpisodes) {
+    return { classified, tmdbEpisodes, verdict: "match", hint: "" };
+  }
+  if (classified < tmdbEpisodes) {
+    const missing = tmdbEpisodes - classified;
+    return {
+      classified,
+      tmdbEpisodes,
+      verdict: "mismatch-low",
+      hint:
+        `TMDb lists ${tmdbEpisodes} episodes but only ${classified} were classified — ` +
+        `${missing} unaccounted for. Check the needs-review list and t-gap warnings.`,
+    };
+  }
+  const extra = classified - tmdbEpisodes;
+  return {
+    classified,
+    tmdbEpisodes,
+    verdict: "mismatch-high",
+    hint:
+      `${classified} files classified but TMDb lists only ${tmdbEpisodes} episodes — ` +
+      `${extra} extra. Possibly a misclassified extra or the wrong season.`,
+  };
+}
+
 export interface ShowSearchHit {
   id: number;
   name: string;
