@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import fs from "node:fs";
 import path from "node:path";
+import { emitDraft, renderReport, runClassify, type ClassifyDiscInput } from "./src/classify.js";
 import { resolveShareBackend } from "./src/copy.js";
 import { buildManifestView, ConfigError, loadConfig, validateManifest } from "./src/config.js";
 import { appendDiscToManifest, formatDuration, formatSize, renderStarterTOML, scanDiscFolder } from "./src/intake.js";
@@ -18,9 +20,10 @@ program
   )
   .version("0.1.0");
 
-interface CommonOpts {
-  config: string;
-}
+// NOTE: --config is declared once on the root program (not per subcommand).
+// Commander lets a parent option shadow a same-named child option, so a local
+// redeclaration would be silently ignored for `cmd ... --config X` invocations.
+const rootConfig = () => String(program.opts().config ?? "archive-dvd.toml");
 
 // ---------------------------------------------------------------------------
 // scan <folder> — print starter TOML for a newly extracted disc folder
@@ -29,8 +32,7 @@ program
   .command("scan")
   .description("Inspect a newly extracted DVD folder and print starter TOML")
   .argument("<folder>", "disc folder containing .mkv files")
-  .option("--config <path>", "manifest path (only used to locate ffprobe config)", "archive-dvd.toml")
-  .action(async (folder: string, opts: CommonOpts) => {
+  .action(async (folder: string) => {
     const ffprobe = resolveBinary("ffprobe.exe") ?? resolveBinary("ffprobe");
     if (!ffprobe) {
       console.error("ffprobe not found on PATH; install ffmpeg or set paths.ffprobe in the manifest.");
@@ -51,8 +53,7 @@ program
   .command("append-disc")
   .description("Append a starter [disc.NAME] section (episode numbers = 0 TODO) to the manifest")
   .argument("<folder>", "disc folder containing .mkv files")
-  .option("--config <path>", "manifest path", "archive-dvd.toml")
-  .action(async (folder: string, opts: CommonOpts) => {
+  .action(async (folder: string) => {
     const ffprobe = resolveBinary("ffprobe.exe") ?? resolveBinary("ffprobe");
     if (!ffprobe) {
       console.error("ffprobe not found on PATH; install ffmpeg or set paths.ffprobe in the manifest.");
@@ -64,9 +65,10 @@ program
       console.error(`No .mkv files found in ${folder}`);
       process.exit(1);
     }
+    const configPath = rootConfig();
     const block = renderStarterTOML(path.basename(abs), files);
-    await appendDiscToManifest(path.resolve(opts.config), path.basename(abs), block);
-    console.log(`Appended [disc.${path.basename(abs)}] to ${opts.config}:\n\n${block}`);
+    await appendDiscToManifest(path.resolve(configPath), path.basename(abs), block);
+    console.log(`Appended [disc.${path.basename(abs)}] to ${configPath}:\n\n${block}`);
   });
 
 // ---------------------------------------------------------------------------
@@ -76,9 +78,8 @@ program
   .command("search")
   .description("Search TMDb shows and print candidate IDs for show.tmdb_id")
   .argument("<query>", "show name to search for")
-  .option("--config <path>", "manifest path (locates .env)", "archive-dvd.toml")
-  .action(async (query: string, opts: CommonOpts) => {
-    const configDir = path.dirname(path.resolve(opts.config));
+  .action(async (query: string) => {
+    const configDir = path.dirname(path.resolve(rootConfig()));
     let key: string;
     try {
       key = loadApiKey(configDir);
@@ -95,6 +96,88 @@ program
       console.log(`${String(h.id).padStart(6)}  ${h.name}${h.year ? ` (${h.year})` : ""}  [${h.voteAverage.toFixed(1)}]`);
     }
     console.error("\nSet show.tmdb_id in the manifest to one of the IDs above.");
+  });
+
+// ---------------------------------------------------------------------------
+// classify <discs...> — chapter-based intake analysis (read-only)
+// ---------------------------------------------------------------------------
+program
+  .command("classify")
+  .description(
+    "Classify ripped MKV files per disc by chapter structure; print a report, optionally emit a draft manifest",
+  )
+  .argument("<discs...>", "disc folder names (relative to paths.source_root) or absolute paths")
+  .option("--season <n>", "season number for the TMDb cross-check (overrides manifest)")
+  .option("--fresh-window-min <min>", "files modified within this many minutes are flagged as possibly still writing", "10")
+  .option("--emit <path>", "write a draft manifest TOML to this path")
+  .option("--force", "overwrite the --emit target if it exists")
+  .action(async (
+    discs: string[],
+    opts: { season?: string; freshWindowMin: string; emit?: string; force?: boolean },
+  ) => {
+    try {
+      // Config is optional for classify — a missing manifest means standalone mode.
+      const configPath = path.resolve(rootConfig());
+      let config = null;
+      let configDir = process.cwd();
+      if (fs.existsSync(configPath)) {
+        ({ config, configDir } = loadConfig(configPath));
+      }
+
+      const runtime = detectRuntime();
+      const sourceRoot = config
+        ? resolveConfiguredPath(config.paths.source_root, configDir, runtime)
+        : process.cwd();
+
+      const discInputs: ClassifyDiscInput[] = [];
+      for (const arg of discs) {
+        const folder = path.isAbsolute(arg) ? path.resolve(arg) : path.join(sourceRoot, arg);
+        if (!fs.existsSync(folder)) {
+          throw new Error(`Disc folder not found: ${folder}`);
+        }
+        discInputs.push({ discName: path.basename(folder), folder });
+      }
+
+      const configuredProbe = config?.paths.ffprobe ?? "ffprobe.exe";
+      const ffprobeBin = resolveBinary(configuredProbe) ?? resolveBinary("ffprobe.exe") ?? resolveBinary("ffprobe");
+      if (!ffprobeBin) {
+        console.error("ffprobe not found on PATH; install ffmpeg or set paths.ffprobe in the manifest.");
+        process.exit(1);
+      }
+
+      const freshWindowMin = Number(opts.freshWindowMin);
+      if (!Number.isFinite(freshWindowMin) || freshWindowMin < 0) {
+        console.error(`--fresh-window-min must be a non-negative number, got: ${opts.freshWindowMin}`);
+        process.exit(1);
+      }
+
+      let seasonOverride: number | null = null;
+      if (opts.season !== undefined) {
+        seasonOverride = Number(opts.season);
+        if (!Number.isInteger(seasonOverride) || seasonOverride <= 0) {
+          console.error(`--season must be a positive integer, got: ${opts.season}`);
+          process.exit(1);
+        }
+      }
+
+      const result = await runClassify({
+        discs: discInputs,
+        ffprobeBin,
+        freshWindowMin,
+        config,
+        configDir,
+        seasonOverride,
+      });
+      console.log(renderReport(result, { freshWindowMin }));
+
+      if (opts.emit) {
+        await emitDraft(result, { target: opts.emit, force: !!opts.force });
+        console.error(`\nWrote draft manifest to ${path.resolve(opts.emit)}`);
+      }
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
   });
 
 // ---------------------------------------------------------------------------
