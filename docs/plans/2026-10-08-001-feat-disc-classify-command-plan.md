@@ -278,8 +278,8 @@ All units implemented and verified against real S1/S2 data:
 - **U5** README "classify" section + workflow update.
 
 Regression results (real media, real TMDb):
-- S1: `classify ARM_S1_D1 ARM_S2_D2` → wait, corrected: `classify ARM_S1_D1 ARM_S1_D2`
-  → 24/24 numbered E01–E24 in exactly the manual mapping's order; TMDb MATCH (24=24).
+- S1: `classify ARM_S1_D1 ARM_S1_D2` → 24/24 numbered E01–E24 in exactly the
+  manual mapping's order; TMDb MATCH (24=24).
 - S2: `classify ARM_S2_D1 ARM_S2_D2 --config archive-dvd-s2.toml` → 26/26 numbered
   E01–E26; TMDb MATCH (26=26).
 - `--emit` draft for S1 passes `loadConfig()` + `validateManifest()` with 0 errors
