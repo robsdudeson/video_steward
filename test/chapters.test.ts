@@ -74,6 +74,13 @@ describe("classifyFile", () => {
       expect(c.evidence).toContain("no chapter data");
     });
 
+    it("returns unknown (not extra) when neither chapters nor duration are known", () => {
+      const c = classifyFile([], null);
+      expect(c.category).toBe("unknown");
+      expect(c.confidence).toBe("low");
+      expect(c.evidence).toContain("no chapter data and no duration");
+    });
+
     it("treats a short file without chapters as an extra candidate", () => {
       const c = classifyFile([], 200);
       expect(c.category).toBe("extra");

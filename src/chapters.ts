@@ -49,10 +49,13 @@ export function classifyFile(chapterDurations: number[], totalSec: number | null
   const total = totalSec ?? chapterDurations.reduce((a, b) => a + b, 0);
 
   if (chapterDurations.length === 0) {
-    if (total < THRESHOLDS.extraMaxTotalSec) {
-      return { category: "extra", confidence: "low", evidence: `no chapters; total ${fmt(total)} is short` };
+    // Only call it an extra when the duration is actually known; a missing
+    // duration means we have no evidence at all, not that the file is short.
+    if (totalSec !== null && totalSec < THRESHOLDS.extraMaxTotalSec) {
+      return { category: "extra", confidence: "low", evidence: `no chapters; total ${fmt(totalSec)} is short` };
     }
-    return { category: "unknown", confidence: "low", evidence: "no chapter data" };
+    const why = totalSec === null ? "no chapter data and no duration" : "no chapter data";
+    return { category: "unknown", confidence: "low", evidence: why };
   }
 
   // Drop trailing stub chapters (0-1s tail entries MakeMKV/DVDs often emit).
