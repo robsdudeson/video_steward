@@ -13,6 +13,11 @@ export interface MediaProbe {
   streams: ProbeStream[];
 }
 
+export interface ChapterSpan {
+  startSec: number;
+  endSec: number;
+}
+
 export class FfmpegError extends Error {}
 
 const VIDEO_OK = new Set(["mpeg2video", "h264", "hevc", "mpeg4", "vc1"]);
@@ -58,6 +63,25 @@ export async function probeMedia(ffprobeBin: string, filePath: string): Promise<
       codecName: String(s.codec_name),
     })),
   };
+}
+
+/**
+ * Run ffprobe and return chapter spans (empty array when the file has no
+ * chapters). Sibling of probeMedia so the remux path's probe stays lean.
+ */
+export async function probeChapters(ffprobeBin: string, filePath: string): Promise<ChapterSpan[]> {
+  const args = ["-v", "error", "-show_entries", "chapter=start_time,end_time", "-of", "json", filePath];
+  const out = await runCapture(ffprobeBin, args);
+  let doc: { chapters?: { start_time?: string | number; end_time?: string | number }[] };
+  try {
+    doc = JSON.parse(out);
+  } catch {
+    throw new FfmpegError(`ffprobe returned invalid JSON for ${filePath}: ${out.slice(0, 200)}`);
+  }
+  return (doc.chapters ?? []).map((c) => ({
+    startSec: Number(c.start_time),
+    endSec: Number(c.end_time),
+  }));
 }
 
 function runCapture(bin: string, args: string[]): Promise<string> {
