@@ -107,11 +107,14 @@ describe("collectDiscEvidence", () => {
   it("lists files from a real folder with t-numbers, ordering, and freshness (no ffprobe)", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "evidence-test-"));
     try {
-      await fs.writeFile(path.join(dir, "D2_t08.mkv"), "x");
-      await fs.writeFile(path.join(dir, "C2_t00.mkv"), "x");
-      await fs.writeFile(path.join(dir, "menu.mkv"), "x");
-
+      // Pin mtimes explicitly so the freshness assertion is deterministic
+      // under parallel worker load (wall-clock mtime is not).
       const now = Date.now();
+      const past = new Date(now - 60_000);
+      for (const f of ["D2_t08.mkv", "C2_t00.mkv", "menu.mkv"]) {
+        await fs.writeFile(path.join(dir, f), "x");
+        await fs.utimes(path.join(dir, f), past, past);
+      }
       const ev = await collectDiscEvidence({
         discName: "TEST_D1",
         folder: dir,

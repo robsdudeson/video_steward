@@ -9,11 +9,14 @@ locally, then copies finished files to a media share.
 
 ```text
 rip DVD -> .mkv folder   (MakeMKV or your ripper of choice)
-video-steward append-disc <folder>     # starter [disc.NAME] section, episodes = 0 TODO
-edit archive-dvd.toml                  # assign episode numbers, move extras to [ignore.*]
-npm run dry-run                        # review evidence table: size, duration, streams, titles
-npm run archive                        # convert + copy (safe to rerun)
+npm run classify -- ARM_S3_D1 ARM_S3_D2   # chapter-based classification + TMDb count check
+edit the draft manifest                    # fix needs-review entries, confirm episode numbers
+npm run dry-run                            # review evidence table: size, duration, streams, titles
+npm run archive                            # convert + copy (safe to rerun)
 ```
+
+(`append-disc` remains for a manual starter section; `classify` automates the
+episode mapping when chapter structure is clean.)
 
 ## Setup
 
@@ -22,6 +25,7 @@ npm install
 # put your TMDb key in .env (next to this file):
 #   TMDB_API_KEY=...
 npm run archive -- search "Aaahh Real Monsters"   # find the show ID
+# (or: npm run classify -- <discs...> once show.tmdb_id is set, for the TMDb count check)
 # set show.tmdb_id in archive-dvd.toml
 ```
 
@@ -34,8 +38,40 @@ npm run archive -- search "Aaahh Real Monsters"   # find the show ID
 | `npm run archive -- scan <folder>` | Print starter TOML for a newly extracted disc folder |
 | `npm run archive -- append-disc <folder>` | Append starter `[disc.NAME]` section to the manifest |
 | `npm run archive -- search <query>` | Search TMDb shows and print candidate IDs |
+| `npm run classify -- <discs...>` | Classify ripped files per disc (read-only report) |
 
 Flags: `--config <path>`, `--only <disc>`, `--force`, `--skip-copy`, `--fail-fast`.
+`classify` adds: `--season <n>`, `--fresh-window-min <min>` (default 10),
+`--emit <path>`, `--force`.
+
+## classify — automated per-disc intake
+
+```bash
+npm run classify -- ARM_S3_D1 ARM_S3_D2            # report only, nothing written
+npm run classify -- ARM_S3_D1 ARM_S3_D2 --emit archive-dvd-s3.toml   # + draft manifest
+```
+
+For each disc the command probes every `.mkv` (durations + chapters), classifies
+the file's role, orders files by t-number, and numbers confidently-classified
+files as episodes 1..N across discs in CLI argument order:
+
+| Category | Meaning | Numbered? |
+| --- | --- | --- |
+| `full` | intro + 2 acts + outro (complete episode) | yes |
+| `no-theme` | complete episode without the opening theme | yes |
+| `possible-half` | e.g. three large acts — likely concatenated episodes | no, needs review |
+| `extra` | short file (menu/bonus capture) | no, needs review |
+| `unknown` | unrecognized chapter shape or no data | no, needs review |
+
+The report also surfaces t-number gaps within each disc, files modified inside
+the freshness window (possibly still writing), and a TMDb cross-check of the
+classified count against the season's episode count. It never modifies media or
+existing manifests; `--emit` writes only the explicitly named draft file and
+refuses to overwrite without `--force`. In the draft, needs-review files are
+emitted as comments so nothing is silently dropped.
+
+Thresholds live in `src/chapters.ts` (`THRESHOLDS`) — tune them there (and in
+`test/chapters.test.ts`) if a new season's chapter structure differs.
 
 ## Manifest (`archive-dvd.toml`)
 

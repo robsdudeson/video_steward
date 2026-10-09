@@ -171,7 +171,12 @@ program
       console.log(renderReport(result, { freshWindowMin }));
 
       if (opts.emit) {
-        await emitDraft(result, { target: opts.emit, force: !!opts.force });
+        await emitDraft(result, {
+          target: opts.emit,
+          force: !!opts.force,
+          config,
+          ...(seasonOverride !== null ? { seasonOverride } : {}),
+        });
         console.error(`\nWrote draft manifest to ${path.resolve(opts.emit)}`);
       }
     } catch (err) {

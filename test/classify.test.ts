@@ -4,6 +4,7 @@ import path from "node:path";
 import { parse } from "smol-toml";
 import { describe, expect, it } from "vitest";
 import { assignEpisodes, emitDraft, renderDraftTOML, renderReport, type ClassifyResult } from "../src/classify.js";
+import { buildManifestView, loadConfig, validateManifest, type AppConfig } from "../src/config.js";
 import type { DiscEvidence, EvidenceRow } from "../src/evidence.js";
 
 function row(file: string, tNumber: number | null, category: EvidenceRow["classification"]["category"]): EvidenceRow {
@@ -108,6 +109,56 @@ describe("renderDraftTOML", () => {
     // Needs-review files must not appear as active mapping entries.
     expect(Object.keys(doc.disc["ARM_S1_D1"] ?? {})).not.toContain("B9_t02.mkv");
     expect(Object.keys(doc.disc["ARM_S1_D2"] ?? {})).not.toContain("menu.mkv");
+  });
+
+  const sampleConfig: AppConfig = {
+    show: { tmdb_id: 2429, name: "Aaahh Real Monsters", season: 1 },
+    paths: {
+      source_root: "C:/Users/rd/Videos",
+      local_output: "C:/Users/rd/Videos/_converted",
+      destination_root: "Z:/video/shows",
+      ffmpeg: "ffmpeg.exe",
+      ffprobe: "ffprobe.exe",
+    },
+    disc: {},
+    ignore: {},
+    title_override: {},
+    share: { backend: "auto" },
+  };
+
+  it("carries show/paths from the config so the draft loads as a valid manifest", async () => {
+    const evidences = [S1_D1, S1_D2];
+    const result: ClassifyResult = { evidences, episodes: assignEpisodes(evidences), seasonCheck: null, seasonCheckNote: null };
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "classify-draft-"));
+    try {
+      const target = path.join(dir, "draft.toml");
+      await emitDraft(result, { target, force: false, config: sampleConfig });
+
+      const { config } = loadConfig(target);
+      expect(config.show.tmdb_id).toBe(2429);
+      expect(config.paths.destination_root).toBe("Z:/video/shows");
+      expect(config.disc.ARM_S1_D1).toEqual({ "D2_t00.mkv": 1, "D3_t01.mkv": 2 });
+      // No blocking validation errors (no TODOs, no duplicate episodes).
+      expect(validateManifest(buildManifestView(config))).toEqual([]);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("applies the season override to the carried show section", () => {
+    const result: ClassifyResult = { evidences: [S1_D1], episodes: assignEpisodes([S1_D1]), seasonCheck: null, seasonCheckNote: null };
+    const toml = renderDraftTOML(result, { config: sampleConfig, seasonOverride: 3 });
+    expect(toml).toContain("season = 3");
+  });
+
+  it("emits a commented show/paths template when no config is supplied", () => {
+    const result: ClassifyResult = { evidences: [S1_D1], episodes: assignEpisodes([S1_D1]), seasonCheck: null, seasonCheckNote: null };
+    const toml = renderDraftTOML(result);
+    expect(toml).toContain("# tmdb_id = 0");
+    expect(toml).toContain("# source_root");
+    // Template sections are commented out, not active table headers.
+    expect(toml).not.toMatch(/^\[show\]/m);
+    expect(toml).not.toMatch(/^\[paths\]/m);
   });
 });
 
