@@ -1,0 +1,31 @@
+[show]
+tmdb_id = 2429
+name = "Aaahh Real Monsters"
+season = 4
+
+[paths]
+source_root = "C:/Users/rd/Videos"
+local_output = "C:/Users/rd/Videos/_converted"
+destination_root = "Z:/video/shows"
+
+[share]
+backend = "auto"
+
+# Title cards verified against TMDb. These discs contain 13 of TMDb's 26 S4
+# episodes, mapped to their true non-contiguous season episode numbers.
+[disc.REAL_MONSTERS_S4_DISC_1]
+"B1_t00.mkv" = 1
+"B1_t01.mkv" = 4
+"B1_t02.mkv" = 5
+"B1_t03.mkv" = 7
+"B1_t04.mkv" = 9
+"B1_t05.mkv" = 11
+"B1_t06.mkv" = 13
+
+[disc.REAL_MONSTERS_S4_DISC_2]
+"B1_t00.mkv" = 15
+"B1_t01.mkv" = 17
+"B1_t02.mkv" = 19
+"B1_t03.mkv" = 21
+"B1_t04.mkv" = 23
+"B1_t05.mkv" = 25

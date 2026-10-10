@@ -1,0 +1,30 @@
+[show]
+tmdb_id = 2429
+name = "Aaahh Real Monsters"
+season = 3
+
+[paths]
+source_root = "C:/Users/rd/Videos"
+local_output = "C:/Users/rd/Videos/_converted"
+destination_root = "Z:/video/shows"
+
+[share]
+backend = "auto"
+
+# Season 3 source discs include duplicate title forms: split half-files plus complete
+# episodes inside A1_t14/A1_t12 mega titles. ARM_S3_STAGED contains lossless
+# chapter-split segments from the mega titles only, one complete episode per file.
+[disc.ARM_S3_STAGED]
+"S3E01.mkv" = 1
+"S3E03.mkv" = 3
+"S3E05.mkv" = 5
+"S3E07.mkv" = 7
+"S3E09.mkv" = 9
+"S3E11.mkv" = 11
+"S3E13.mkv" = 13
+"S3E15.mkv" = 15
+"S3E17.mkv" = 17
+"S3E19.mkv" = 19
+"S3E21.mkv" = 21
+"S3E23.mkv" = 23
+"S3E25.mkv" = 25
