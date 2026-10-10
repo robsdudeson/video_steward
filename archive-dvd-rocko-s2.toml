@@ -1,0 +1,51 @@
+[show]
+tmdb_id = 657
+name = "Rocko's Modern Life"
+season = 2
+
+[paths]
+source_root = "C:/Users/rd/Videos"
+local_output = "C:/Users/rd/Videos/_converted"
+destination_root = "Z:/video/shows"
+
+[share]
+backend = "auto"
+
+[disc."ROCKO'S MODERN LIFE S2 D1"]
+"A2_t00.mkv" = 1
+"A3_t01.mkv" = 2
+"A4_t02.mkv" = 3
+"A5_t03.mkv" = 4
+"A6_t04.mkv" = 5
+"A7_t05.mkv" = 6
+"A8_t06.mkv" = 7
+"C1_t07.mkv" = 8
+"C2_t08.mkv" = 9
+"C3_t09.mkv" = 10
+"C4_t10.mkv" = 11
+"C5_t11.mkv" = 12
+
+[disc."ROCKO'S MODERN LIFE S2 D2"]
+"A2_t00.mkv" = 13
+"A3_t01.mkv" = 14
+"A4_t02.mkv" = 15
+"C1_t03.mkv" = 16
+"C2_t04.mkv" = 17
+"C3_t05.mkv" = 18
+"C4_t06.mkv" = 19
+"C5_t07.mkv" = 20
+"C6_t08.mkv" = 21
+"C7_t09.mkv" = 22
+"C8_t10.mkv" = 23
+
+[ignore."ROCKO'S MODERN LIFE S2 D1"]
+"A1_t12.mkv" = "play-all duplicate title"
+
+[ignore."ROCKO'S MODERN LIFE S2 D2"]
+"A1_t11.mkv" = "play-all duplicate title"
+"E1_t12.mkv" = "extra/menu/bonus short"
+"D2_t13.mkv" = "extra/menu/bonus compilation"
+"D3_t14.mkv" = "extra/menu/bonus short"
+"D4_t15.mkv" = "extra/menu/bonus short"
+"D5_t16.mkv" = "extra/menu/bonus short"
+"D6_t17.mkv" = "extra/menu/bonus short"
