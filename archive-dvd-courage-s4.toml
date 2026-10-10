@@ -1,0 +1,40 @@
+[show]
+tmdb_id = 2085
+name = "Courage the Cowardly Dog"
+season = 4
+
+[paths]
+source_root = "C:/Users/rd/Videos"
+local_output = "C:/Users/rd/Videos/_converted"
+destination_root = "Z:/video/shows"
+
+[share]
+backend = "auto"
+
+# Staged from two-story DVD broadcast files into one file per TMDb episode.
+[disc.COURAGE_S4_STAGED]
+"S04E01.mkv" = 1
+"S04E02.mkv" = 2
+"S04E03.mkv" = 3
+"S04E04.mkv" = 4
+"S04E05.mkv" = 5
+"S04E06.mkv" = 6
+"S04E07.mkv" = 7
+"S04E08.mkv" = 8
+"S04E09.mkv" = 9
+"S04E10.mkv" = 10
+"S04E11.mkv" = 11
+"S04E12.mkv" = 12
+"S04E13.mkv" = 13
+"S04E14.mkv" = 14
+"S04E15.mkv" = 15
+"S04E16.mkv" = 16
+"S04E17.mkv" = 17
+"S04E18.mkv" = 18
+"S04E19.mkv" = 19
+"S04E20.mkv" = 20
+"S04E21.mkv" = 21
+"S04E22.mkv" = 22
+"S04E23.mkv" = 23
+"S04E24.mkv" = 24
+"S04E25.mkv" = 25
