@@ -1,0 +1,48 @@
+[show]
+tmdb_id = 657
+name = "Rocko's Modern Life"
+season = 3
+
+[paths]
+source_root = "C:/Users/rd/Videos"
+local_output = "C:/Users/rd/Videos/_converted"
+destination_root = "Z:/video/shows"
+
+[share]
+backend = "auto"
+
+[disc."ROCKO'S MODERN LIFE S3 D1"]
+"A2_t00.mkv" = 1
+"A3_t01.mkv" = 2
+"A4_t02.mkv" = 3
+"A5_t03.mkv" = 4
+"A6_t04.mkv" = 5
+"A7_t05.mkv" = 6
+"A8_t06.mkv" = 7
+"A9_t07.mkv" = 8
+"C1_t08.mkv" = 9
+"C2_t09.mkv" = 10
+"C3_t10.mkv" = 11
+"C4_t11.mkv" = 12
+"C5_t12.mkv" = 13
+"C6_t13.mkv" = 14
+
+[disc."ROCKO'S MODERN LIFE S3 D2"]
+"A2_t00.mkv" = 15
+"A3_t01.mkv" = 16
+"A4_t02.mkv" = 17
+"A5_t03.mkv" = 18
+"C1_t04.mkv" = 19
+"C2_t05.mkv" = 20
+"C3_t06.mkv" = 21
+"C4_t07.mkv" = 22
+"C5_t08.mkv" = 23
+"C6_t09.mkv" = 24
+"C7_t10.mkv" = 25
+
+[ignore."ROCKO'S MODERN LIFE S3 D1"]
+"A1_t14.mkv" = "play-all duplicate title"
+
+[ignore."ROCKO'S MODERN LIFE S3 D2"]
+"A1_t11.mkv" = "play-all duplicate title"
+"A7_t12.mkv" = "extra/bonus long title not part of TMDb season 3"
