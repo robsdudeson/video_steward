@@ -140,7 +140,10 @@ export async function stageRepairs(opts: { plan: RepairPlanDoc; stageDir: string
       partPaths.push(part);
     }
     const listPath = path.join(opts.stageDir, `S${String(item.episode).padStart(2, "0")}.concat.txt`);
-    await fs.writeFile(listPath, partPaths.map((p) => `file '${p.replaceAll("'", "''")}'`).join("\n") + "\n", "ascii");
+    await fs.writeFile(listPath, partPaths.map((p) => {
+      const mediaPath = toMediaToolPath(p);
+      return `file '${mediaPath.replaceAll("'", "''")}'`;
+    }).join("\n") + "\n", "ascii");
     await run(opts.ffmpegBin, buildFfmpegConcatArgs(toMediaToolPath(listPath), toMediaToolPath(output)));
     items.push({ episode: item.episode, title: item.title, output, expectedDurationSec: item.expectedDurationSec });
   }
@@ -240,7 +243,7 @@ export async function applyRepairs(opts: { plan: RepairPlanDoc; stageDir: string
     replaced.push({ source: item.source, backup, replacement });
   }
   const manifest = archiveJoin(backupDir, "replacement-manifest.json");
-  await archiveFs.copy(await writeTempManifest({ backupDir, replaced }), manifest);
+  await archiveFs.copy(await writeTempManifest({ backupDir, replaced }, opts.stageDir), manifest);
   return { backupDir, replaced };
 }
 
@@ -253,8 +256,9 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
-async function writeTempManifest(result: ApplyResult): Promise<string> {
-  const p = path.join(tmpdir(), `video-steward-replacement-${Date.now()}.json`);
+async function writeTempManifest(result: ApplyResult, stageDir?: string): Promise<string> {
+  const root = stageDir ?? tmpdir();
+  const p = path.join(root, `video-steward-replacement-${Date.now()}.json`);
   await fs.writeFile(p, `${JSON.stringify(result, null, 2)}\n`, "utf8");
   return p;
 }

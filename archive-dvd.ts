@@ -287,9 +287,10 @@ repair
   .action(async (opts: { plan: string; stageDir: string; backupRoot: string; dryRun?: boolean; json?: boolean }) => {
     try {
       const plan = await readRepairPlan(opts.plan);
-      const result = await applyRepairs({ plan, stageDir: opts.stageDir, backupRoot: opts.backupRoot, dryRun: !!opts.dryRun });
+      const dryRun = !!(opts.dryRun ?? program.opts().dryRun);
+      const result = await applyRepairs({ plan, stageDir: opts.stageDir, backupRoot: opts.backupRoot, dryRun });
       if (opts.json) console.log(JSON.stringify(result, null, 2));
-      else if (opts.dryRun) {
+      else if (dryRun) {
         console.log(`Dry run OK. Would back up originals to ${result.backupDir}`);
         for (const r of result.replaced) console.log(`  ${r.source} <- ${r.replacement}`);
       } else {
