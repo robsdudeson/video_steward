@@ -9,6 +9,7 @@ export interface EpisodeMeta {
   number: number;
   name: string;
   airDate: string | null;
+  runtimeMin: number | null;
 }
 
 export interface SeasonMeta {
@@ -49,7 +50,7 @@ async function tmdbGet(apiKey: string, route: string): Promise<unknown> {
 /** Fetch all episodes for a season. */
 export async function fetchSeason(apiKey: string, tmdbId: number, season: number): Promise<SeasonMeta> {
   const doc = (await tmdbGet(apiKey, `/tv/${tmdbId}/season/${season}`)) as {
-    episodes?: { episode_number?: number; name?: string; air_date?: string | null }[];
+    episodes?: { episode_number?: number; name?: string; air_date?: string | null; runtime?: number | null }[];
   };
   const episodes = new Map<number, EpisodeMeta>();
   for (const ep of doc.episodes ?? []) {
@@ -58,6 +59,7 @@ export async function fetchSeason(apiKey: string, tmdbId: number, season: number
       number: ep.episode_number,
       name: ep.name,
       airDate: ep.air_date ?? null,
+      runtimeMin: typeof ep.runtime === "number" ? ep.runtime : null,
     });
   }
   return { tmdbId, season, episodes };

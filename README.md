@@ -39,10 +39,53 @@ npm run archive -- search "Aaahh Real Monsters"   # find the show ID
 | `npm run archive -- append-disc <folder>` | Append starter `[disc.NAME]` section to the manifest |
 | `npm run archive -- search <query>` | Search TMDb shows and print candidate IDs |
 | `npm run classify -- <discs...>` | Classify ripped files per disc (read-only report) |
+| `npm run archive -- audit-season <folder>` | Audit an archived MP4 season folder (read-only) |
+| `npm run archive -- repair-season stage --plan <path> --stage-dir <dir>` | Generate staged `.TEST.mp4` repair outputs from an approved repair plan |
+| `npm run archive -- repair-season apply --plan <path> --stage-dir <dir> --backup-root <path>` | Back up originals and replace them with staged outputs |
 
 Flags: `--config <path>`, `--only <disc>`, `--force`, `--skip-copy`, `--fail-fast`.
 `classify` adds: `--season <n>`, `--fresh-window-min <min>` (default 10),
 `--emit <path>`, `--force`.
+`audit-season` adds: `--season <n>`, `--require-metadata`, `--runtime-tolerance-min <min>`,
+`--long-delta-min <min>`, `--emit-repair-plan <path>`, `--json`, `--force`.
+`repair-season stage` adds: `--force`, `--json`; `repair-season apply` adds: `--dry-run`, `--json`.
+
+## Archived season audit + guarded repair
+
+Use `audit-season` after files already live in the media library. It is read-only:
+
+```bash
+npm run archive -- --config archive-dvd.toml \
+  audit-season "Z:/video/shows/Aaahh Real Monsters/Season 01" \
+  --emit-repair-plan aaahh-s1-repair-plan.json
+```
+
+The audit compares filename/runtime/chapter evidence against TMDb when the
+manifest has `show.tmdb_id`; without metadata it still reports local evidence
+and says the TMDb comparison was skipped. A repair plan is deliberately
+unapproved when first emitted. Review the candidate cuts and policy, then set
+`approved_for_staging: true` before staging test files:
+
+```bash
+npm run archive -- repair-season stage \
+  --plan aaahh-s1-repair-plan.json \
+  --stage-dir C:/Users/rd/Videos/_aaahh_s1_audit_test
+```
+
+After spot-checking the staged `.TEST.mp4` files, set `approved_for_apply: true`
+and apply with a backup root:
+
+```bash
+npm run archive -- repair-season apply \
+  --plan aaahh-s1-repair-plan.json \
+  --stage-dir C:/Users/rd/Videos/_aaahh_s1_audit_test \
+  --backup-root Z:/video.bak
+```
+
+This workflow treats runtime/chapter checks as anomaly detection, not proof of
+content identity. For paired-segment repairs, the emitted plan names the policy
+(e.g. `segment-plus-outro-no-intro`) and includes a checklist so a human confirms
+the dropped act exists elsewhere before replacement.
 
 ## classify — automated per-disc intake
 

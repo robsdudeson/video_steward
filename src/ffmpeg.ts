@@ -11,6 +11,7 @@ export interface ProbeStream {
 export interface MediaProbe {
   durationSec: number | null;
   streams: ProbeStream[];
+  formatTags?: Record<string, string> | undefined;
 }
 
 export interface ChapterSpan {
@@ -40,14 +41,14 @@ export interface StreamPlan {
 export async function probeMedia(ffprobeBin: string, filePath: string): Promise<MediaProbe> {
   const args = [
     "-v", "error",
-    "-show_entries", "stream=index,codec_type,codec_name:format=duration",
+    "-show_entries", "stream=index,codec_type,codec_name:format=duration:format_tags",
     "-of", "json",
     filePath,
   ];
   const out = await runCapture(ffprobeBin, args);
   let doc: {
     streams?: { index: number; codec_type: string; codec_name: string }[];
-    format?: { duration?: string };
+    format?: { duration?: string; tags?: Record<string, unknown> };
   };
   try {
     doc = JSON.parse(out);
@@ -62,6 +63,9 @@ export async function probeMedia(ffprobeBin: string, filePath: string): Promise<
       codecType: String(s.codec_type),
       codecName: String(s.codec_name),
     })),
+    formatTags: Object.fromEntries(
+      Object.entries(doc.format?.tags ?? {}).map(([k, v]) => [k, String(v)]),
+    ),
   };
 }
 

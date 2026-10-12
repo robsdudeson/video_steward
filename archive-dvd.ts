@@ -9,6 +9,8 @@ import { appendDiscToManifest, formatDuration, formatSize, renderStarterTOML, sc
 import { Logger } from "./src/logger.js";
 import { fetchSeason, loadApiKey, MetadataError, searchShows } from "./src/metadata.js";
 import { attachEvidence, buildPlan, execute, findUnmappedFiles } from "./src/plan.js";
+import { readRepairPlan, stageRepairs, applyRepairs } from "./src/repair.js";
+import { buildRepairPlan, emitRepairPlan, renderSeasonAuditReport, runSeasonAudit } from "./src/season-audit.js";
 import { detectRuntime, resolveBinary, resolveConfiguredPath, runPreflight } from "./src/paths.js";
 
 const program = new Command();
@@ -178,6 +180,121 @@ program
           ...(seasonOverride !== null ? { seasonOverride } : {}),
         });
         console.error(`\nWrote draft manifest to ${path.resolve(opts.emit)}`);
+      }
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// audit-season <folder> — read-only audit of an archived MP4 season folder
+// ---------------------------------------------------------------------------
+program
+  .command("audit-season")
+  .description("Audit an archived MP4 season folder against local evidence and optional TMDb metadata")
+  .argument("<folder>", "season folder, e.g. Z:/video/shows/Show/Season 01")
+  .option("--season <n>", "season number for the TMDb comparison (overrides manifest)")
+  .option("--require-metadata", "fail if TMDb metadata cannot be loaded")
+  .option("--runtime-tolerance-min <min>", "allowed short/normal runtime delta", "2")
+  .option("--long-delta-min <min>", "delta above TMDb runtime that flags LONG", "5")
+  .option("--emit-repair-plan <path>", "write a JSON repair plan for candidate paired-segment files")
+  .option("--json", "emit machine-readable JSON instead of text")
+  .option("--force", "overwrite the --emit-repair-plan target if it exists")
+  .action(async (folder: string, opts: { season?: string; requireMetadata?: boolean; runtimeToleranceMin: string; longDeltaMin: string; emitRepairPlan?: string; json?: boolean; force?: boolean }) => {
+    try {
+      const configPath = path.resolve(rootConfig());
+      let config = null;
+      let configDir = process.cwd();
+      if (fs.existsSync(configPath)) ({ config, configDir } = loadConfig(configPath));
+
+      let seasonOverride: number | null = null;
+      if (opts.season !== undefined) {
+        seasonOverride = Number(opts.season);
+        if (!Number.isInteger(seasonOverride) || seasonOverride <= 0) throw new Error(`--season must be a positive integer, got: ${opts.season}`);
+      }
+      const runtimeToleranceMin = Number(opts.runtimeToleranceMin);
+      const longDeltaMin = Number(opts.longDeltaMin);
+      if (!Number.isFinite(runtimeToleranceMin) || runtimeToleranceMin < 0) throw new Error(`--runtime-tolerance-min must be non-negative, got: ${opts.runtimeToleranceMin}`);
+      if (!Number.isFinite(longDeltaMin) || longDeltaMin < 0) throw new Error(`--long-delta-min must be non-negative, got: ${opts.longDeltaMin}`);
+
+      const configuredProbe = config?.paths.ffprobe ?? "ffprobe.exe";
+      const ffprobeBin = resolveBinary(configuredProbe) ?? resolveBinary("ffprobe.exe") ?? resolveBinary("ffprobe");
+      if (!ffprobeBin) throw new Error("ffprobe not found on PATH; install ffmpeg or set paths.ffprobe in the manifest.");
+
+      const result = await runSeasonAudit({
+        folder,
+        ffprobeBin,
+        config,
+        configDir,
+        seasonOverride,
+        requireMetadata: !!opts.requireMetadata,
+        runtimeToleranceMin,
+        longDeltaMin,
+      });
+      console.log(opts.json ? JSON.stringify(result, null, 2) : renderSeasonAuditReport(result));
+      if (opts.emitRepairPlan) {
+        const repairPlan = buildRepairPlan(result);
+        await emitRepairPlan(repairPlan, opts.emitRepairPlan, !!opts.force);
+        console.error(`\nWrote repair plan to ${path.resolve(opts.emitRepairPlan)} (${repairPlan.items.length} candidate item(s))`);
+      }
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// repair-season — stage or apply an approved season repair plan
+// ---------------------------------------------------------------------------
+const repair = program.command("repair-season").description("Stage or apply an approved archived-season repair plan");
+
+repair
+  .command("stage")
+  .description("Generate staged TEST outputs from a repair plan")
+  .requiredOption("--plan <path>", "repair plan JSON")
+  .requiredOption("--stage-dir <path>", "directory for staged TEST outputs")
+  .option("--force", "overwrite existing staged outputs")
+  .option("--json", "emit machine-readable JSON instead of text")
+  .action(async (opts: { plan: string; stageDir: string; force?: boolean; json?: boolean }) => {
+    try {
+      const configPath = path.resolve(rootConfig());
+      let ffmpeg = "ffmpeg.exe";
+      if (fs.existsSync(configPath)) ffmpeg = loadConfig(configPath).config.paths.ffmpeg;
+      const ffmpegBin = resolveBinary(ffmpeg) ?? resolveBinary("ffmpeg.exe") ?? resolveBinary("ffmpeg");
+      if (!ffmpegBin) throw new Error("ffmpeg not found on PATH; install ffmpeg or set paths.ffmpeg in the manifest.");
+      const plan = await readRepairPlan(opts.plan);
+      const summary = await stageRepairs({ plan, stageDir: opts.stageDir, ffmpegBin, force: !!opts.force });
+      if (opts.json) console.log(JSON.stringify(summary, null, 2));
+      else {
+        console.log(`Staged ${summary.items.length} repair output(s) in ${summary.stageDir}`);
+        console.error(`Review outputs, then set approved_for_apply=true before running apply.`);
+      }
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
+  });
+
+repair
+  .command("apply")
+  .description("Back up originals and replace them with staged outputs")
+  .requiredOption("--plan <path>", "repair plan JSON")
+  .requiredOption("--stage-dir <path>", "directory containing staged TEST outputs")
+  .requiredOption("--backup-root <path>", "backup root, e.g. Z:/video.bak")
+  .option("--dry-run", "validate and print planned replacements without modifying files")
+  .option("--json", "emit machine-readable JSON instead of text")
+  .action(async (opts: { plan: string; stageDir: string; backupRoot: string; dryRun?: boolean; json?: boolean }) => {
+    try {
+      const plan = await readRepairPlan(opts.plan);
+      const result = await applyRepairs({ plan, stageDir: opts.stageDir, backupRoot: opts.backupRoot, dryRun: !!opts.dryRun });
+      if (opts.json) console.log(JSON.stringify(result, null, 2));
+      else if (opts.dryRun) {
+        console.log(`Dry run OK. Would back up originals to ${result.backupDir}`);
+        for (const r of result.replaced) console.log(`  ${r.source} <- ${r.replacement}`);
+      } else {
+        console.log(`Backed up originals to ${result.backupDir}`);
+        console.log(`Replaced ${result.replaced.length} file(s).`);
       }
     } catch (err) {
       console.error((err as Error).message);

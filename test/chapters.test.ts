@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyFile, spansToDurations, THRESHOLDS } from "../src/chapters.js";
+import { classifyFile, detectSegmentRepairCandidate, spansToDurations, THRESHOLDS } from "../src/chapters.js";
 
 describe("spansToDurations", () => {
   it("computes per-chapter durations", () => {
@@ -8,6 +8,58 @@ describe("spansToDurations", () => {
 
   it("returns empty for no chapters", () => {
     expect(spansToDurations([])).toEqual([]);
+  });
+});
+
+describe("detectSegmentRepairCandidate", () => {
+  it("detects a long paired-segment candidate but keeps confidence at candidate level", () => {
+    const c = detectSegmentRepairCandidate({
+      chapters: [
+        { startSec: 0, endSec: 47 },
+        { startSec: 47, endSec: 719 },
+        { startSec: 719, endSec: 1384 },
+        { startSec: 1384, endSec: 1429 },
+        { startSec: 1429, endSec: 1430 },
+      ],
+      actualDurationSec: 1430,
+      expectedRuntimeMin: 11,
+      nextEpisodeDurationSec: 711,
+    });
+    expect(c.kind).toBe("paired-duplicate-candidate");
+    expect(c.confidence).toBe("medium");
+    expect(c.policy).toBe("segment-plus-outro-no-intro");
+    expect(c.keepRanges).toEqual([{ startSec: 47, endSec: 719 }, { startSec: 1384, endSec: 1430 }]);
+  });
+
+  it("rejects a candidate when the next file duration is far from the dropped act", () => {
+    const c = detectSegmentRepairCandidate({
+      chapters: [
+        { startSec: 0, endSec: 47 },
+        { startSec: 47, endSec: 719 },
+        { startSec: 719, endSec: 1384 },
+        { startSec: 1384, endSec: 1430 },
+      ],
+      actualDurationSec: 1430,
+      expectedRuntimeMin: 11,
+      nextEpisodeDurationSec: 3600,
+    });
+    expect(c.kind).toBe("not-candidate");
+    expect(c.evidence).toContain("not close");
+  });
+
+  it("does not suggest repair when there is insufficient evidence", () => {
+    expect(detectSegmentRepairCandidate({ chapters: [], actualDurationSec: 1430, expectedRuntimeMin: 11 }).kind).toBe("insufficient-evidence");
+    expect(detectSegmentRepairCandidate({ chapters: [{ startSec: 0, endSec: 700 }], actualDurationSec: 700, expectedRuntimeMin: null }).kind).toBe("not-candidate");
+    expect(detectSegmentRepairCandidate({ chapters: [{ startSec: 0, endSec: 47 }, { startSec: 47, endSec: 719 }], actualDurationSec: 719, expectedRuntimeMin: 11 }).kind).toBe("not-candidate");
+  });
+
+  it("does not suggest repair when the expected runtime is full-length", () => {
+    const c = detectSegmentRepairCandidate({
+      chapters: [{ startSec: 0, endSec: 47 }, { startSec: 47, endSec: 719 }, { startSec: 719, endSec: 1384 }, { startSec: 1384, endSec: 1430 }],
+      actualDurationSec: 1430,
+      expectedRuntimeMin: 22,
+    });
+    expect(c.kind).toBe("not-candidate");
   });
 });
 

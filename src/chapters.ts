@@ -9,6 +9,22 @@ export interface Classification {
   evidence: string;
 }
 
+export type SegmentRepairKind = "paired-duplicate-candidate" | "not-candidate" | "insufficient-evidence";
+
+export interface ChapterRange {
+  startSec: number;
+  endSec: number;
+}
+
+export interface SegmentRepairCandidate {
+  kind: SegmentRepairKind;
+  confidence: Confidence;
+  evidence: string;
+  policy: "segment-plus-outro-no-intro" | null;
+  keepRanges: ChapterRange[];
+  dropRanges: ChapterRange[];
+}
+
 /**
  * Threshold table — the single documented source of truth for file-role
  * classification. Tuning for a new season means changing values here and in
@@ -25,11 +41,27 @@ export const THRESHOLDS = {
   stubMaxSec: 15,
   /** Files shorter than this total duration are extra candidates. */
   extraMaxTotalSec: 300,
+  /** TMDb runtimes at/above this many minutes are treated as full-length. */
+  fullLengthRuntimeMin: 20,
+  /** Actual duration must exceed expected runtime by this many seconds before repair is considered. */
+  repairLongDeltaSec: 5 * 60,
+  /** Next-file duration must be this close to the dropped act to call it matching evidence. */
+  nextEpisodeMatchToleranceSec: 2 * 60,
 } as const;
 
 /** Durations of the given chapter spans, in seconds. */
 export function spansToDurations(spans: ChapterSpan[]): number[] {
   return spans.map((s) => s.endSec - s.startSec);
+}
+
+function trimTrailingStubs<T extends number | ChapterSpan>(items: T[], durationOf: (item: T) => number): T[] {
+  const out = [...items];
+  for (;;) {
+    const tail = out[out.length - 1];
+    if (tail === undefined || durationOf(tail) >= THRESHOLDS.stubMaxSec) break;
+    out.pop();
+  }
+  return out;
 }
 
 function fmt(d: number): string {
@@ -59,12 +91,7 @@ export function classifyFile(chapterDurations: number[], totalSec: number | null
   }
 
   // Drop trailing stub chapters (0-1s tail entries MakeMKV/DVDs often emit).
-  const segs = [...chapterDurations];
-  for (;;) {
-    const tail = segs[segs.length - 1];
-    if (tail === undefined || tail >= THRESHOLDS.stubMaxSec) break;
-    segs.pop();
-  }
+  const segs = trimTrailingStubs(chapterDurations, (d) => d);
   if (segs.length === 0) {
     return { category: "unknown", confidence: "low", evidence: "only stub-length chapters" };
   }
@@ -106,5 +133,87 @@ export function classifyFile(chapterDurations: number[], totalSec: number | null
     category: "unknown",
     confidence: "low",
     evidence: `unrecognized chapter shape ${shape}${hasOutro ? "" : ", no outro"}`,
+  };
+}
+
+export function detectSegmentRepairCandidate(opts: {
+  chapters: ChapterSpan[];
+  actualDurationSec: number | null;
+  expectedRuntimeMin: number | null;
+  nextEpisodeDurationSec?: number | null | undefined;
+}): SegmentRepairCandidate {
+  if (opts.chapters.length === 0) {
+    return { kind: "insufficient-evidence", confidence: "low", evidence: "no chapter data", policy: null, keepRanges: [], dropRanges: [] };
+  }
+  if (opts.expectedRuntimeMin === null || opts.expectedRuntimeMin >= THRESHOLDS.fullLengthRuntimeMin) {
+    return {
+      kind: "not-candidate",
+      confidence: "medium",
+      evidence: opts.expectedRuntimeMin === null ? "no expected runtime" : `expected runtime ${opts.expectedRuntimeMin}m is full-length`,
+      policy: null,
+      keepRanges: [],
+      dropRanges: [],
+    };
+  }
+
+  const trimmed = trimTrailingStubs(opts.chapters, (c) => c.endSec - c.startSec);
+  const durations = spansToDurations(trimmed);
+  if (trimmed.length !== 4) {
+    return { kind: "not-candidate", confidence: "low", evidence: `chapter shape ${durations.map(fmt).join("|")} is not intro+2 acts+outro`, policy: null, keepRanges: [], dropRanges: [] };
+  }
+  const [intro, firstAct, secondAct, outro] = trimmed;
+  if (!intro || !firstAct || !secondAct || !outro) {
+    return { kind: "insufficient-evidence", confidence: "low", evidence: "incomplete chapter data", policy: null, keepRanges: [], dropRanges: [] };
+  }
+
+  const introDur = intro.endSec - intro.startSec;
+  const firstDur = firstAct.endSec - firstAct.startSec;
+  const secondDur = secondAct.endSec - secondAct.startSec;
+  const outroDur = outro.endSec - outro.startSec;
+  const hasIntro = introDur >= THRESHOLDS.introMinSec && introDur < THRESHOLDS.actMinSec;
+  const hasTwoActs = firstDur >= THRESHOLDS.actMinSec && secondDur >= THRESHOLDS.actMinSec;
+  const hasOutro = outroDur <= THRESHOLDS.outroMaxSec;
+  const total = opts.actualDurationSec ?? opts.chapters.at(-1)?.endSec ?? 0;
+  const expectedSec = opts.expectedRuntimeMin * 60;
+  const isLong = total > expectedSec + THRESHOLDS.repairLongDeltaSec;
+  if (!hasIntro || !hasTwoActs || !hasOutro || !isLong) {
+    return { kind: "not-candidate", confidence: "medium", evidence: `shape ${durations.map(fmt).join("|")} does not match long paired-segment candidate`, policy: null, keepRanges: [], dropRanges: [] };
+  }
+
+  const tail = opts.chapters.slice(trimmed.length);
+  const keepOutroEnd = tail.length > 0 ? tail[tail.length - 1]!.endSec : outro.endSec;
+  const keepRanges = [
+    { startSec: firstAct.startSec, endSec: firstAct.endSec },
+    { startSec: outro.startSec, endSec: keepOutroEnd },
+  ];
+  const dropRanges = [
+    { startSec: intro.startSec, endSec: intro.endSec },
+    { startSec: secondAct.startSec, endSec: secondAct.endSec },
+  ];
+
+  if (opts.nextEpisodeDurationSec !== null && opts.nextEpisodeDurationSec !== undefined) {
+    const delta = Math.abs(opts.nextEpisodeDurationSec - secondDur);
+    if (delta > THRESHOLDS.nextEpisodeMatchToleranceSec) {
+      return {
+        kind: "not-candidate",
+        confidence: "medium",
+        evidence: `next file duration ${fmt(opts.nextEpisodeDurationSec)} is not close to dropped act ${fmt(secondDur)}`,
+        policy: null,
+        keepRanges: [],
+        dropRanges: [],
+      };
+    }
+  }
+
+  const nextEvidence = opts.nextEpisodeDurationSec
+    ? `; next file duration ${fmt(opts.nextEpisodeDurationSec)} is close to second act ${fmt(secondDur)}`
+    : "; next-file identity requires preview confirmation";
+  return {
+    kind: "paired-duplicate-candidate",
+    confidence: "medium",
+    evidence: `long file with intro + 2 act-sized chapters + outro (${durations.map(fmt).join("|")})${nextEvidence}`,
+    policy: "segment-plus-outro-no-intro",
+    keepRanges,
+    dropRanges,
   };
 }
