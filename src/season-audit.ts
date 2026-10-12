@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AppConfig } from "./config.js";
-import { detectSegmentRepairCandidate, type ChapterRange, type SegmentRepairCandidate } from "./chapters.js";
+import { detectSegmentRepairCandidate, detectSplitPairedCandidate, type ChapterRange, type SegmentRepairCandidate } from "./chapters.js";
 import { probeChapters, probeMedia } from "./ffmpeg.js";
 import { formatDuration, formatSize } from "./intake.js";
 import { fetchSeason, loadApiKey, type SeasonMeta } from "./metadata.js";
@@ -47,6 +47,8 @@ export interface RunSeasonAuditOpts {
   requireMetadata: boolean;
   runtimeToleranceMin: number;
   longDeltaMin: number;
+  /** Repair policy to evaluate when building the audit's repair candidates. */
+  repairPolicy?: RepairPolicy;
 }
 
 const FILENAME_RE = /^(.*) - S(\d{2})E(\d{2}) - (.*)\.mp4$/i;
@@ -80,9 +82,10 @@ function compareRuntime(actualSec: number | null, expectedMin: number | null, to
   return "ok";
 }
 
-async function loadSeasonMeta(opts: RunSeasonAuditOpts): Promise<{ meta: SeasonMeta | null; note: string | null }> {
+async function loadSeasonMeta(opts: RunSeasonAuditOpts, force?: { required: boolean }): Promise<{ meta: SeasonMeta | null; note: string | null }> {
+  const requireMetadata = opts.requireMetadata || !!force?.required;
   if (!opts.config || opts.config.show.tmdb_id <= 0) {
-    if (opts.requireMetadata) throw new Error("TMDb metadata required but no show.tmdb_id is configured");
+    if (requireMetadata) throw new Error("TMDb metadata required but no show.tmdb_id is configured");
     return { meta: null, note: "TMDb comparison skipped: no manifest metadata" };
   }
   const season = opts.seasonOverride ?? opts.config.show.season;
@@ -90,7 +93,7 @@ async function loadSeasonMeta(opts: RunSeasonAuditOpts): Promise<{ meta: SeasonM
     const key = loadApiKey(opts.configDir);
     return { meta: await fetchSeason(key, opts.config.show.tmdb_id, season), note: null };
   } catch (err) {
-    if (opts.requireMetadata) throw err;
+    if (requireMetadata) throw err;
     return { meta: null, note: `TMDb comparison skipped: ${(err as Error).message}` };
   }
 }
@@ -99,7 +102,7 @@ export async function runSeasonAudit(opts: RunSeasonAuditOpts): Promise<SeasonAu
   const mediaFs = mediaFsForPath(opts.folder);
   const [entries, metaResult] = await Promise.all([
     mediaFs.listFiles(opts.folder, ".mp4"),
-    loadSeasonMeta(opts),
+    loadSeasonMeta(opts, opts.repairPolicy === "split-paired-episode" ? { required: true } : undefined),
   ]);
   const rows: AuditRow[] = [];
   const warnings: string[] = [];
@@ -141,14 +144,29 @@ export async function runSeasonAudit(opts: RunSeasonAuditOpts): Promise<SeasonAu
 
   for (const row of partialRows) {
     const next = row.parsed ? partialRows.find((r) => r.parsed?.episode === row.parsed!.episode + 1) : undefined;
-    const repair = row.runtimeStatus === "long"
-      ? detectSegmentRepairCandidate({
-        chapters: row.chapters,
-        actualDurationSec: row.durationSec,
-        expectedRuntimeMin: row.tmdbRuntimeMin,
-        nextEpisodeDurationSec: next?.durationSec,
-      })
-      : null;
+    let repair: SegmentRepairCandidate | null = null;
+    if (row.runtimeStatus === "long") {
+      if (opts.repairPolicy === "split-paired-episode") {
+        repair = detectSplitPairedCandidate({
+          chapters: row.chapters,
+          actualDurationSec: row.durationSec,
+          expectedRuntimeMin: row.tmdbRuntimeMin,
+        });
+      }
+      // Record TMDb metadata for the even episode this source would create.
+      if (row.parsed && repair?.kind === "paired-split-candidate") {
+        const evenMeta = metaResult.meta?.episodes.get(row.parsed.episode + 1);
+        setSplitEvenMetadata(row.entry.fullPath, evenMeta ? { title: evenMeta.name, runtimeMin: evenMeta.runtimeMin } : null);
+      }
+      if (opts.repairPolicy !== "split-paired-episode") {
+        repair = detectSegmentRepairCandidate({
+          chapters: row.chapters,
+          actualDurationSec: row.durationSec,
+          expectedRuntimeMin: row.tmdbRuntimeMin,
+          nextEpisodeDurationSec: next?.durationSec,
+        });
+      }
+    }
     rows.push({
       file: row.entry.name,
       fullPath: row.entry.fullPath,
@@ -187,12 +205,28 @@ export function renderSeasonAuditReport(result: SeasonAuditResult): string {
     const ep = row.parsed ? String(row.parsed.episode).padStart(2, "0") : "--";
     const db = row.tmdbRuntimeMin === null ? "--" : `${row.tmdbRuntimeMin}m`;
     const title = row.parsed?.title ?? row.file;
-    const repair = row.repair?.kind === "paired-duplicate-candidate" ? "  [repair candidate]" : "";
+    const repair = row.repair && (row.repair.kind === "paired-duplicate-candidate" || row.repair.kind === "paired-split-candidate") ? "  [repair candidate]" : "";
     lines.push(`${ep}  ${formatDuration(row.durationSec)}  ${db.padEnd(5)} ${row.runtimeStatus.toUpperCase().padEnd(7)} ${title}${repair}`);
     for (const w of row.warnings) lines.push(`    - ${w}`);
-    if (row.repair?.kind === "paired-duplicate-candidate") lines.push(`    - ${row.repair.evidence}; requires preview/approval`);
+    if (row.repair && (row.repair.kind === "paired-duplicate-candidate" || row.repair.kind === "paired-split-candidate")) lines.push(`    - ${row.repair.evidence}; requires preview/approval`);
   }
   return lines.join("\n");
+}
+
+export type RepairPolicy = "segment-plus-outro-no-intro" | "split-paired-episode";
+
+/** One final output derived from a repair source file. */
+export interface RepairPlanOutput {
+  /** Episode number this output becomes in the archive. */
+  episode: number;
+  title: string;
+  /** Archive filename this output replaces (replace) or creates (create). */
+  targetName: string;
+  /** How apply handles the target. */
+  mode: "replace" | "create";
+  keepRanges: ChapterRange[];
+  dropRanges: ChapterRange[];
+  expectedDurationSec: number;
 }
 
 export interface RepairPlanItem {
@@ -207,48 +241,196 @@ export interface RepairPlanItem {
   confidence: string;
 }
 
+/** Normalized repair plan item: always carries explicit per-output actions. */
+export interface NormalizedRepairItem {
+  episode: number;
+  title: string;
+  source: string;
+  evidence: string;
+  confidence: string;
+  outputs: RepairPlanOutput[];
+}
+
 export interface RepairPlanDoc {
   version: 1;
-  policy: "segment-plus-outro-no-intro";
+  policy: RepairPolicy;
   approved_for_staging: boolean;
   approved_for_apply: boolean;
   source_folder: string;
   created_at: string;
   checklist: string[];
-  items: RepairPlanItem[];
+  items: NormalizedRepairItem[];
 }
 
-export function buildRepairPlan(result: SeasonAuditResult): RepairPlanDoc {
-  const items = result.rows.flatMap((row): RepairPlanItem[] => {
-    if (row.repair?.kind !== "paired-duplicate-candidate" || !row.parsed) return [];
-    const expectedDurationSec = row.repair.keepRanges.reduce((sum, r) => sum + (r.endSec - r.startSec), 0);
+/**
+ * Normalize a parsed plan document into the action-based shape. Legacy
+ * `segment-plus-outro-no-intro` items (one implicit output per item) become a
+ * single replace action; split items keep their explicit outputs.
+ */
+export function normalizeRepairPlanItem(raw: {
+  episode: number;
+  title: string;
+  source: string;
+  evidence: string;
+  confidence: string;
+  legacy?: { outputName: string; keepRanges: ChapterRange[]; dropRanges: ChapterRange[]; expectedDurationSec: number } | null;
+  outputs?: RepairPlanOutput[] | null;
+}): NormalizedRepairItem {
+  if (raw.legacy) {
+    return {
+      episode: raw.episode,
+      title: raw.title,
+      source: raw.source,
+      evidence: raw.evidence,
+      confidence: raw.confidence,
+      outputs: [{
+        episode: raw.episode,
+        title: raw.title,
+        targetName: raw.legacy.outputName.replace(/\.TEST\.mp4$/i, ".mp4"),
+        mode: "replace",
+        keepRanges: raw.legacy.keepRanges,
+        dropRanges: raw.legacy.dropRanges,
+        expectedDurationSec: raw.legacy.expectedDurationSec,
+      }],
+    };
+  }
+  if (!raw.outputs || raw.outputs.length === 0) {
+    throw new Error(`repair plan item S${String(raw.episode).padStart(2, "0")} has no outputs`);
+  }
+  return {
+    episode: raw.episode,
+    title: raw.title,
+    source: raw.source,
+    evidence: raw.evidence,
+    confidence: raw.confidence,
+    outputs: raw.outputs,
+  };
+}
+
+const SPLIT_CHECKLIST = [
+  "Confirm the policy matches known-good files for this season.",
+  "Preview each staged pair and confirm the first act maps to the odd episode and the second act to the even one.",
+  "Set approved_for_staging=true only after reviewing this plan.",
+  "Set approved_for_apply=true only after spot-checking staged outputs.",
+];
+
+const SEGMENT_CHECKLIST = [
+  "Confirm the policy matches known-good files for this season.",
+  "Preview each candidate and confirm dropped act content exists in the following episode file.",
+  "Set approved_for_staging=true only after reviewing this plan.",
+  "Set approved_for_apply=true only after spot-checking staged outputs.",
+];
+
+export function buildRepairPlan(result: SeasonAuditResult, policy: RepairPolicy = "segment-plus-outro-no-intro"): RepairPlanDoc {
+  const splitWarnings: string[] = [];
+  const items = result.rows.flatMap((row): NormalizedRepairItem[] => {
+    if (!row.parsed) return [];
+    if (policy === "split-paired-episode") {
+      if (row.repair?.kind !== "paired-split-candidate" || !row.repair.splitOutputs) return [];
+      if (row.parsed.episode % 2 === 0) {
+        splitWarnings.push(`${row.file}: split policy expects odd-numbered source files; skipping even episode ${row.parsed.episode}`);
+        return [];
+      }
+      const existingEven = result.rows.find((r) => r.parsed?.episode === row.parsed!.episode + 1);
+      if (existingEven) {
+        splitWarnings.push(`${row.file}: next even file ${existingEven.file} already exists; refusing to plan a create action over it`);
+        return [];
+      }
+      const odd = row.parsed.episode;
+      const even = odd + 1;
+      const evenMeta = splitEvenMetadata.get(row.fullPath);
+      if (!evenMeta) {
+        splitWarnings.push(`${row.file}: TMDb has no metadata for episode ${even}; cannot name the create output, skipping`);
+        return [];
+      }
+      const oddOutput: RepairPlanOutput = {
+        episode: odd,
+        title: row.parsed.title,
+        targetName: row.file.replace(/\.mp4$/i, ".mp4"),
+        mode: "replace",
+        keepRanges: row.repair.splitOutputs.oddKeep,
+        dropRanges: row.repair.dropRanges,
+        expectedDurationSec: sumRangeSeconds(row.repair.splitOutputs.oddKeep),
+      };
+      const evenOutput: RepairPlanOutput = {
+        episode: even,
+        title: evenMeta.title,
+        targetName: archiveEpisodeFileName(result, row, even, evenMeta.title),
+        mode: "create",
+        keepRanges: row.repair.splitOutputs.evenKeep,
+        dropRanges: [],
+        expectedDurationSec: sumRangeSeconds(row.repair.splitOutputs.evenKeep),
+      };
+      return [{
+        episode: odd,
+        title: row.parsed.title,
+        source: row.fullPath,
+        evidence: row.repair.evidence,
+        confidence: row.repair.confidence,
+        outputs: [oddOutput, evenOutput],
+      }];
+    }
+    if (row.repair?.kind !== "paired-duplicate-candidate") return [];
+    const expectedDurationSec = sumRangeSeconds(row.repair.keepRanges);
     return [{
       episode: row.parsed.episode,
       title: row.parsed.title,
       source: row.fullPath,
-      outputName: row.file.replace(/\.mp4$/i, ".TEST.mp4"),
-      keepRanges: row.repair.keepRanges,
-      dropRanges: row.repair.dropRanges,
-      expectedDurationSec,
       evidence: row.repair.evidence,
       confidence: row.repair.confidence,
+      outputs: [{
+        episode: row.parsed.episode,
+        title: row.parsed.title,
+        targetName: row.file.replace(/\.mp4$/i, ".mp4"),
+        mode: "replace",
+        keepRanges: row.repair.keepRanges,
+        dropRanges: row.repair.dropRanges,
+        expectedDurationSec,
+      }],
     }];
   });
+  if (policy === "split-paired-episode") {
+    for (const w of splitWarnings) {
+      if (!result.warnings.includes(w)) result.warnings.push(w);
+    }
+  }
   return {
     version: 1,
-    policy: "segment-plus-outro-no-intro",
+    policy,
     approved_for_staging: false,
     approved_for_apply: false,
     source_folder: result.folder,
     created_at: new Date().toISOString(),
-    checklist: [
-      "Confirm the policy matches known-good files for this season.",
-      "Preview each candidate and confirm dropped act content exists in the following episode file.",
-      "Set approved_for_staging=true only after reviewing this plan.",
-      "Set approved_for_apply=true only after spot-checking staged outputs.",
-    ],
+    checklist: policy === "split-paired-episode" ? SPLIT_CHECKLIST : SEGMENT_CHECKLIST,
     items,
   };
+}
+
+function sumRangeSeconds(ranges: ChapterRange[]): number {
+  return ranges.reduce((sum, r) => sum + (r.endSec - r.startSec), 0);
+}
+
+/**
+ * TMDb titles for even episodes to be created. Populated by runSeasonAudit
+ * before buildRepairPlan runs; keyed by source file fullPath so the plan
+ * builder stays a pure function of the audit result.
+ */
+const splitEvenMetadata = new Map<string, { title: string; runtimeMin: number | null }>();
+
+/** Reset per-audit even-episode metadata (tests and repeated audits). */
+export function clearSplitEvenMetadata(): void {
+  splitEvenMetadata.clear();
+}
+
+export function setSplitEvenMetadata(fullPath: string, meta: { title: string; runtimeMin: number | null } | null): void {
+  if (meta === null) splitEvenMetadata.delete(fullPath);
+  else splitEvenMetadata.set(fullPath, meta);
+}
+
+function archiveEpisodeFileName(result: SeasonAuditResult, row: AuditRow, episode: number, title: string): string {
+  const showName = row.parsed?.showName ?? result.folder.split(/[\\/]/).filter(Boolean).at(-2) ?? "Show";
+  const season = row.parsed?.season ?? Number(/Season (\d+)/i.exec(result.folder)?.[1] ?? 0);
+  return `${showName} - S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")} - ${title}.mp4`;
 }
 
 export async function emitRepairPlan(plan: RepairPlanDoc, target: string, force: boolean): Promise<void> {

@@ -9,20 +9,28 @@ export interface Classification {
   evidence: string;
 }
 
-export type SegmentRepairKind = "paired-duplicate-candidate" | "not-candidate" | "insufficient-evidence";
+export type SegmentRepairKind = "paired-duplicate-candidate" | "paired-split-candidate" | "not-candidate" | "insufficient-evidence";
 
 export interface ChapterRange {
   startSec: number;
   endSec: number;
 }
 
+export interface SplitOutputRanges {
+  /** Output for the existing odd episode: first act + outro/tail. */
+  oddKeep: ChapterRange[];
+  /** Output for the missing even episode: second act + outro/tail. */
+  evenKeep: ChapterRange[];
+}
+
 export interface SegmentRepairCandidate {
   kind: SegmentRepairKind;
   confidence: Confidence;
   evidence: string;
-  policy: "segment-plus-outro-no-intro" | null;
+  policy: "segment-plus-outro-no-intro" | "split-paired-episode" | null;
   keepRanges: ChapterRange[];
   dropRanges: ChapterRange[];
+  splitOutputs?: SplitOutputRanges;
 }
 
 /**
@@ -136,12 +144,16 @@ export function classifyFile(chapterDurations: number[], totalSec: number | null
   };
 }
 
-export function detectSegmentRepairCandidate(opts: {
+/**
+ * Shared structural gate for paired-segment files: intro + two act-sized
+ * chapters + outro, total duration well above the expected single-episode
+ * runtime. Returns the trimmed four-span shape or a rejection candidate.
+ */
+function longPairedShape(opts: {
   chapters: ChapterSpan[];
   actualDurationSec: number | null;
   expectedRuntimeMin: number | null;
-  nextEpisodeDurationSec?: number | null | undefined;
-}): SegmentRepairCandidate {
+}): { intro: ChapterRange; firstAct: ChapterRange; secondAct: ChapterRange; outro: ChapterRange; tailEndSec: number; durations: string[] } | SegmentRepairCandidate {
   if (opts.chapters.length === 0) {
     return { kind: "insufficient-evidence", confidence: "low", evidence: "no chapter data", policy: null, keepRanges: [], dropRanges: [] };
   }
@@ -157,9 +169,8 @@ export function detectSegmentRepairCandidate(opts: {
   }
 
   const trimmed = trimTrailingStubs(opts.chapters, (c) => c.endSec - c.startSec);
-  const durations = spansToDurations(trimmed);
   if (trimmed.length !== 4) {
-    return { kind: "not-candidate", confidence: "low", evidence: `chapter shape ${durations.map(fmt).join("|")} is not intro+2 acts+outro`, policy: null, keepRanges: [], dropRanges: [] };
+    return { kind: "not-candidate", confidence: "low", evidence: `chapter shape ${spansToDurations(trimmed).map(fmt).join("|")} is not intro+2 acts+outro`, policy: null, keepRanges: [], dropRanges: [] };
   }
   const [intro, firstAct, secondAct, outro] = trimmed;
   if (!intro || !firstAct || !secondAct || !outro) {
@@ -177,14 +188,35 @@ export function detectSegmentRepairCandidate(opts: {
   const expectedSec = opts.expectedRuntimeMin * 60;
   const isLong = total > expectedSec + THRESHOLDS.repairLongDeltaSec;
   if (!hasIntro || !hasTwoActs || !hasOutro || !isLong) {
-    return { kind: "not-candidate", confidence: "medium", evidence: `shape ${durations.map(fmt).join("|")} does not match long paired-segment candidate`, policy: null, keepRanges: [], dropRanges: [] };
+    return { kind: "not-candidate", confidence: "medium", evidence: `shape ${spansToDurations(trimmed).map(fmt).join("|")} does not match long paired-segment candidate`, policy: null, keepRanges: [], dropRanges: [] };
   }
 
   const tail = opts.chapters.slice(trimmed.length);
-  const keepOutroEnd = tail.length > 0 ? tail[tail.length - 1]!.endSec : outro.endSec;
+  return {
+    intro,
+    firstAct,
+    secondAct,
+    outro,
+    tailEndSec: tail.length > 0 ? tail[tail.length - 1]!.endSec : outro.endSec,
+    durations: spansToDurations(trimmed).map(fmt),
+  };
+}
+
+export function detectSegmentRepairCandidate(opts: {
+  chapters: ChapterSpan[];
+  actualDurationSec: number | null;
+  expectedRuntimeMin: number | null;
+  nextEpisodeDurationSec?: number | null | undefined;
+}): SegmentRepairCandidate {
+  const shape = longPairedShape(opts);
+  if ("kind" in shape) return shape;
+
+  const { intro, firstAct, secondAct, outro, tailEndSec, durations } = shape;
+  const secondDur = secondAct.endSec - secondAct.startSec;
+
   const keepRanges = [
     { startSec: firstAct.startSec, endSec: firstAct.endSec },
-    { startSec: outro.startSec, endSec: keepOutroEnd },
+    { startSec: outro.startSec, endSec: tailEndSec },
   ];
   const dropRanges = [
     { startSec: intro.startSec, endSec: intro.endSec },
@@ -205,15 +237,51 @@ export function detectSegmentRepairCandidate(opts: {
     }
   }
 
-  const nextEvidence = opts.nextEpisodeDurationSec
+  const nextEvidence = opts.nextEpisodeDurationSec !== undefined && opts.nextEpisodeDurationSec !== null
     ? `; next file duration ${fmt(opts.nextEpisodeDurationSec)} is close to second act ${fmt(secondDur)}`
     : "; next-file identity requires preview confirmation";
   return {
     kind: "paired-duplicate-candidate",
     confidence: "medium",
-    evidence: `long file with intro + 2 act-sized chapters + outro (${durations.map(fmt).join("|")})${nextEvidence}`,
+    evidence: `long file with intro + 2 act-sized chapters + outro (${durations.join("|")})${nextEvidence}`,
     policy: "segment-plus-outro-no-intro",
     keepRanges,
     dropRanges,
+  };
+}
+
+/**
+ * Detect the Season-3 shape: a long paired file whose second act has no
+ * sibling even-episode file in the archive. Unlike
+ * detectSegmentRepairCandidate this does not require (and ignores) the next
+ * episode's duration, because the even file is expected to be missing.
+ */
+export function detectSplitPairedCandidate(opts: {
+  chapters: ChapterSpan[];
+  actualDurationSec: number | null;
+  expectedRuntimeMin: number | null;
+}): SegmentRepairCandidate {
+  const shape = longPairedShape(opts);
+  if ("kind" in shape) return shape;
+
+  const { intro, firstAct, secondAct, outro, tailEndSec, durations } = shape;
+  const splitOutputs: SplitOutputRanges = {
+    oddKeep: [
+      { startSec: firstAct.startSec, endSec: firstAct.endSec },
+      { startSec: outro.startSec, endSec: tailEndSec },
+    ],
+    evenKeep: [
+      { startSec: secondAct.startSec, endSec: secondAct.endSec },
+      { startSec: outro.startSec, endSec: tailEndSec },
+    ],
+  };
+  return {
+    kind: "paired-split-candidate",
+    confidence: "medium",
+    evidence: `long file with intro + 2 act-sized chapters + outro (${durations.join("|")}); even episode must be created from the second act`,
+    policy: "split-paired-episode",
+    keepRanges: splitOutputs.oddKeep,
+    dropRanges: [{ startSec: intro.startSec, endSec: intro.endSec }],
+    splitOutputs,
   };
 }

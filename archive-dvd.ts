@@ -199,9 +199,10 @@ program
   .option("--runtime-tolerance-min <min>", "allowed short/normal runtime delta", "2")
   .option("--long-delta-min <min>", "delta above TMDb runtime that flags LONG", "5")
   .option("--emit-repair-plan <path>", "write a JSON repair plan for candidate paired-segment files")
+  .option("--repair-policy <policy>", "repair policy to evaluate: segment-plus-outro-no-intro (default) or split-paired-episode", "segment-plus-outro-no-intro")
   .option("--json", "emit machine-readable JSON instead of text")
   .option("--force", "overwrite the --emit-repair-plan target if it exists")
-  .action(async (folder: string, opts: { season?: string; requireMetadata?: boolean; runtimeToleranceMin: string; longDeltaMin: string; emitRepairPlan?: string; json?: boolean; force?: boolean }) => {
+  .action(async (folder: string, opts: { season?: string; requireMetadata?: boolean; runtimeToleranceMin: string; longDeltaMin: string; emitRepairPlan?: string; repairPolicy?: string; json?: boolean; force?: boolean }) => {
     try {
       const configPath = path.resolve(rootConfig());
       let config = null;
@@ -222,6 +223,10 @@ program
       const ffprobeBin = resolveBinary(configuredProbe) ?? resolveBinary("ffprobe.exe") ?? resolveBinary("ffprobe");
       if (!ffprobeBin) throw new Error("ffprobe not found on PATH; install ffmpeg or set paths.ffprobe in the manifest.");
 
+      const repairPolicy = (opts.repairPolicy ?? "segment-plus-outro-no-intro") as import("./src/season-audit.js").RepairPolicy;
+      if (!(["segment-plus-outro-no-intro", "split-paired-episode"] as const).includes(repairPolicy)) {
+        throw new Error(`Unknown --repair-policy ${opts.repairPolicy}; expected segment-plus-outro-no-intro or split-paired-episode`);
+      }
       const result = await runSeasonAudit({
         folder,
         ffprobeBin,
@@ -231,12 +236,14 @@ program
         requireMetadata: !!opts.requireMetadata,
         runtimeToleranceMin,
         longDeltaMin,
+        repairPolicy,
       });
       console.log(opts.json ? JSON.stringify(result, null, 2) : renderSeasonAuditReport(result));
       if (opts.emitRepairPlan) {
-        const repairPlan = buildRepairPlan(result);
+        const repairPlan = buildRepairPlan(result, repairPolicy);
         await emitRepairPlan(repairPlan, opts.emitRepairPlan, !!opts.force);
-        console.error(`\nWrote repair plan to ${path.resolve(opts.emitRepairPlan)} (${repairPlan.items.length} candidate item(s))`);
+        const outputCount = repairPlan.items.reduce((n, i) => n + i.outputs.length, 0);
+        console.error(`\nWrote ${repairPolicy} repair plan to ${path.resolve(opts.emitRepairPlan)} (${repairPlan.items.length} source item(s), ${outputCount} output action(s))`);
       }
     } catch (err) {
       console.error((err as Error).message);
@@ -292,10 +299,11 @@ repair
       if (opts.json) console.log(JSON.stringify(result, null, 2));
       else if (dryRun) {
         console.log(`Dry run OK. Would back up originals to ${result.backupDir}`);
-        for (const r of result.replaced) console.log(`  ${r.source} <- ${r.replacement}`);
+        for (const r of result.replaced) console.log(`  replace S${String(r.episode).padStart(2, "0")}: ${r.target} <- ${r.replacement} (backup: ${r.backup})`);
+        for (const c of result.created) console.log(`  create  S${String(c.episode).padStart(2, "0")}: ${c.target} <- ${c.replacement}`);
       } else {
         console.log(`Backed up originals to ${result.backupDir}`);
-        console.log(`Replaced ${result.replaced.length} file(s).`);
+        console.log(`Replaced ${result.replaced.length} file(s), created ${result.created.length} file(s).`);
       }
     } catch (err) {
       console.error((err as Error).message);

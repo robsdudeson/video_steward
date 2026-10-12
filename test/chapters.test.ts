@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyFile, detectSegmentRepairCandidate, spansToDurations, THRESHOLDS } from "../src/chapters.js";
+import { classifyFile, detectSegmentRepairCandidate, detectSplitPairedCandidate, spansToDurations, THRESHOLDS } from "../src/chapters.js";
 
 describe("spansToDurations", () => {
   it("computes per-chapter durations", () => {
@@ -60,6 +60,61 @@ describe("detectSegmentRepairCandidate", () => {
       expectedRuntimeMin: 22,
     });
     expect(c.kind).toBe("not-candidate");
+  });
+});
+
+describe("detectSplitPairedCandidate", () => {
+  it("detects a split candidate without requiring the next file to exist", () => {
+    const c = detectSplitPairedCandidate({
+      chapters: [
+        { startSec: 0, endSec: 47 },
+        { startSec: 47, endSec: 719 },
+        { startSec: 719, endSec: 1384 },
+        { startSec: 1384, endSec: 1429 },
+        { startSec: 1429, endSec: 1430 },
+      ],
+      actualDurationSec: 1430,
+      expectedRuntimeMin: 11,
+    });
+    expect(c.kind).toBe("paired-split-candidate");
+    expect(c.policy).toBe("split-paired-episode");
+    expect(c.splitOutputs?.oddKeep).toEqual([{ startSec: 47, endSec: 719 }, { startSec: 1384, endSec: 1430 }]);
+    expect(c.splitOutputs?.evenKeep).toEqual([{ startSec: 719, endSec: 1384 }, { startSec: 1384, endSec: 1430 }]);
+  });
+
+  it("extends kept outro ranges through trailing stub chapters", () => {
+    const c = detectSplitPairedCandidate({
+      chapters: [
+        { startSec: 0, endSec: 47 },
+        { startSec: 47, endSec: 719 },
+        { startSec: 719, endSec: 1384 },
+        { startSec: 1384, endSec: 1429 },
+        { startSec: 1429, endSec: 1430 }, // trailing stub
+      ],
+      actualDurationSec: 1430,
+      expectedRuntimeMin: 11,
+    });
+    expect(c.kind).toBe("paired-split-candidate");
+    expect(c.splitOutputs?.oddKeep[0]).toEqual({ startSec: 47, endSec: 719 });
+    // Odd keep includes the outro extended through the trailing stub.
+    expect(c.splitOutputs?.oddKeep[1]).toEqual({ startSec: 1384, endSec: 1430 });
+    expect(c.splitOutputs?.evenKeep).toEqual([{ startSec: 719, endSec: 1384 }, { startSec: 1384, endSec: 1430 }]);
+  });
+
+  it("rejects files that are not long paired shapes", () => {
+    expect(detectSplitPairedCandidate({ chapters: [], actualDurationSec: 1430, expectedRuntimeMin: 11 }).kind).toBe("insufficient-evidence");
+    const short = detectSplitPairedCandidate({
+      chapters: [{ startSec: 0, endSec: 700 }],
+      actualDurationSec: 700,
+      expectedRuntimeMin: 11,
+    });
+    expect(short.kind).toBe("not-candidate");
+    const fullLength = detectSplitPairedCandidate({
+      chapters: [{ startSec: 0, endSec: 47 }, { startSec: 47, endSec: 719 }, { startSec: 719, endSec: 1384 }, { startSec: 1384, endSec: 1430 }],
+      actualDurationSec: 1430,
+      expectedRuntimeMin: 22,
+    });
+    expect(fullLength.kind).toBe("not-candidate");
   });
 });
 
