@@ -62,7 +62,7 @@ const splitItemSchema = z.object({
   source: z.string().min(1),
   evidence: z.string().min(1),
   confidence: z.string().min(1),
-  outputs: z.array(outputActionSchema).min(2),
+  outputs: z.array(outputActionSchema).min(1),
 });
 
 const repairPlanSchema = z.discriminatedUnion("policy", [

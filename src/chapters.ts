@@ -72,6 +72,14 @@ function trimTrailingStubs<T extends number | ChapterSpan>(items: T[], durationO
   return out;
 }
 
+function trimBoundaryStubs<T extends number | ChapterSpan>(items: T[], durationOf: (item: T) => number): { items: T[]; endIndex: number } {
+  let start = 0;
+  let end = items.length - 1;
+  while (start <= end && durationOf(items[start]!) < THRESHOLDS.stubMaxSec) start += 1;
+  while (end >= start && durationOf(items[end]!) < THRESHOLDS.stubMaxSec) end -= 1;
+  return { items: items.slice(start, end + 1), endIndex: end };
+}
+
 function fmt(d: number): string {
   return `${Math.round(d)}s`;
 }
@@ -168,7 +176,7 @@ function longPairedShape(opts: {
     };
   }
 
-  const trimmed = trimTrailingStubs(opts.chapters, (c) => c.endSec - c.startSec);
+  const { items: trimmed, endIndex } = trimBoundaryStubs(opts.chapters, (c) => c.endSec - c.startSec);
   if (trimmed.length !== 4) {
     return { kind: "not-candidate", confidence: "low", evidence: `chapter shape ${spansToDurations(trimmed).map(fmt).join("|")} is not intro+2 acts+outro`, policy: null, keepRanges: [], dropRanges: [] };
   }
@@ -191,7 +199,7 @@ function longPairedShape(opts: {
     return { kind: "not-candidate", confidence: "medium", evidence: `shape ${spansToDurations(trimmed).map(fmt).join("|")} does not match long paired-segment candidate`, policy: null, keepRanges: [], dropRanges: [] };
   }
 
-  const tail = opts.chapters.slice(trimmed.length);
+  const tail = opts.chapters.slice(endIndex + 1);
   return {
     intro,
     firstAct,

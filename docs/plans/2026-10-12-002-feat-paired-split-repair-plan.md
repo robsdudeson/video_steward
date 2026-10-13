@@ -1,7 +1,7 @@
 ---
 title: feat: Add paired split repair workflow
 type: feat
-status: active
+status: completed
 date: 2026-10-12
 ---
 
@@ -10,6 +10,8 @@ date: 2026-10-12
 ## Overview
 
 Extend `video_steward` so archived-season repair can handle Aaahh Real Monsters Season 3's shape: each archived odd episode file contains two 11-minute segments, while the even episode files are missing. Unlike the Season 2 duplicate-removal workflow, Season 3 needs to stage and apply two outputs per source file: replace the existing odd episode with the first segment and create the missing even episode from the second segment.
+
+**Implementation status:** Built in `87d9da9 feat: add paired split repair policy for two-part archive files`. Season 3 processing completed on 2026-10-12. During processing, leading MP4 chapter stubs were handled so all 13 paired sources were detected.
 
 ---
 
@@ -119,7 +121,7 @@ repair-season apply
 
 ## Implementation Units
 
-- [ ] U1. **Generalize repair plan schema for output actions**
+- [x] U1. **Generalize repair plan schema for output actions**
 
 **Goal:** Support repair plans that can describe both one-output replacements and two-output split actions.
 
@@ -153,7 +155,7 @@ repair-season apply
 
 ---
 
-- [ ] U2. **Detect and build split-paired Season 3 repair plans**
+- [x] U2. **Detect and build split-paired Season 3 repair plans**
 
 **Goal:** Generate a repair plan for folders where odd long files contain the missing even episodes.
 
@@ -192,7 +194,7 @@ repair-season apply
 
 ---
 
-- [ ] U3. **Stage split outputs safely**
+- [x] U3. **Stage split outputs safely**
 
 **Goal:** Generate all odd replacement and even creation `.TEST.mp4` files in a stage directory.
 
@@ -225,7 +227,7 @@ repair-season apply
 
 ---
 
-- [ ] U4. **Apply replace/create actions with backups and conflict checks**
+- [x] U4. **Apply replace/create actions with backups and conflict checks**
 
 **Goal:** Apply staged split outputs to the archive without losing originals or accidentally overwriting newly-created even files.
 
@@ -260,7 +262,7 @@ repair-season apply
 
 ---
 
-- [ ] U5. **Document and verify the Season 3 workflow**
+- [x] U5. **Document and verify the Season 3 workflow**
 
 **Goal:** Make the new workflow understandable and verify the real Season 3 archive end state.
 
@@ -312,10 +314,147 @@ repair-season apply
 
 ---
 
+## Season 3 Processing Runbook
+
+Target archive folder:
+
+```text
+Z:/video/shows/Aaahh Real Monsters/Season 03
+```
+
+Local plan and staging artifacts:
+
+```text
+aaahh-s3-repair-plan.json
+/mnt/c/Users/rd/Videos/_aaahh_s3_audit_test
+```
+
+### Processing checklist
+
+- [x] P1. **Generate the split repair plan**
+
+```bash
+npm run archive -- --config archive-dvd-s3.toml \
+  audit-season "Z:/video/shows/Aaahh Real Monsters/Season 03" \
+  --repair-policy split-paired-episode \
+  --emit-repair-plan aaahh-s3-repair-plan.json
+```
+
+Expected result:
+- Plan policy is `split-paired-episode`.
+- Plan contains 13 source items.
+- Plan contains 26 output actions total: 13 `replace` odd episodes and 13 `create` even episodes.
+- Even output titles come from TMDb, including `S03E02 - Simon's Big Score` through `S03E26 - Slumber Scare`.
+
+- [x] P2. **Review and approve staging**
+
+Inspect `aaahh-s3-repair-plan.json` before editing it.
+
+Review expectations:
+- Every source is an existing odd archive file: `S03E01,03,...,25`.
+- Every odd output has `mode: "replace"`.
+- Every even output has `mode: "create"`.
+- Keep ranges for odd outputs use the first act + outro/tail.
+- Keep ranges for even outputs use the second act + outro/tail.
+
+Then set:
+
+```json
+"approved_for_staging": true
+```
+
+- [x] P3. **Stage the 26 test outputs**
+
+```bash
+rm -rf /mnt/c/Users/rd/Videos/_aaahh_s3_audit_test
+npm run archive -- repair-season stage \
+  --plan aaahh-s3-repair-plan.json \
+  --stage-dir /mnt/c/Users/rd/Videos/_aaahh_s3_audit_test
+```
+
+Expected result:
+- 26 `.TEST.mp4` files are staged.
+- `stage-summary.json` lists 26 outputs.
+- Durations are roughly 11-12 minutes each.
+
+- [x] P4. **Spot-check staged pairs**
+
+Open staged outputs from at least several odd/even pairs before apply. Recommended minimum pairs:
+
+- `S03E01` / `S03E02`
+- `S03E13` / `S03E14`
+- `S03E25` / `S03E26`
+
+Confirm:
+- Odd output is the first segment and matches its title.
+- Even output is the second segment and matches its title.
+- Outro/tail handling is acceptable.
+- No output still contains both segments.
+
+- [x] P5. **Approve and dry-run apply**
+
+After spot-checking, set:
+
+```json
+"approved_for_apply": true
+```
+
+Then run:
+
+```bash
+npm run archive -- repair-season apply \
+  --plan aaahh-s3-repair-plan.json \
+  --stage-dir /mnt/c/Users/rd/Videos/_aaahh_s3_audit_test \
+  --backup-root Z:/video.bak \
+  --dry-run
+```
+
+Expected result:
+- Dry-run lists 13 replacements for odd existing files.
+- Dry-run lists 13 creations for missing even files.
+- No archive files are changed during dry-run.
+
+- [x] P6. **Apply Season 3 repairs**
+
+```bash
+npm run archive -- repair-season apply \
+  --plan aaahh-s3-repair-plan.json \
+  --stage-dir /mnt/c/Users/rd/Videos/_aaahh_s3_audit_test \
+  --backup-root Z:/video.bak
+```
+
+Expected result:
+- Originals for odd episodes are backed up under a new `Z:/video.bak/video-steward-repair-*` directory.
+- Missing even episodes are created in `Season 03`.
+- Replacement manifest records `replaced` and `created` outputs separately.
+
+- [x] P7. **Final audit**
+
+```bash
+npm run archive -- --config archive-dvd-s3.toml \
+  audit-season "Z:/video/shows/Aaahh Real Monsters/Season 03"
+```
+
+Success criteria:
+- Season folder contains 26 files.
+- All rows report runtime `OK`.
+- No `LONG` rows remain.
+- No repair candidates remain.
+
+Actual result:
+- Final audit passed with episodes `S03E01` through `S03E26` present.
+- All 26 rows reported runtime `OK` at ~11:41-11:56.
+- Applied repair backed up originals to `Z:/video.bak/video-steward-repair-2026-10-12T20-54-20-736Z`.
+- Staged outputs remain at `/mnt/c/Users/rd/Videos/_aaahh_s3_audit_test`.
+- Local plan artifact: `aaahh-s3-repair-plan.json`.
+
+---
+
 ## Documentation / Operational Notes
 
-- The working tree currently has a local untracked `aaahh-s2-repair-plan.json`; implementation should avoid accidentally committing that artifact.
-- Season 3 staged output directory should be separate from Season 2, e.g. `C:/Users/rd/Videos/_aaahh_s3_audit_test`.
+- The working tree currently has a local untracked `aaahh-s2-repair-plan.json`; avoid committing that artifact.
+- The Season 3 repair plan `aaahh-s3-repair-plan.json` should also be treated as a local processing artifact unless you explicitly want to save it.
+- Season 3 staged output directory should be separate from Season 2: `/mnt/c/Users/rd/Videos/_aaahh_s3_audit_test`.
 - Backups should continue to live under `Z:/video.bak`.
 
 ---

@@ -101,6 +101,23 @@ describe("detectSplitPairedCandidate", () => {
     expect(c.splitOutputs?.evenKeep).toEqual([{ startSec: 719, endSec: 1384 }, { startSec: 1384, endSec: 1430 }]);
   });
 
+  it("ignores leading stub chapters when detecting split candidates", () => {
+    const c = detectSplitPairedCandidate({
+      chapters: [
+        { startSec: 0, endSec: 0 }, // leading stub from archived MP4 chapter export
+        { startSec: 0, endSec: 48 },
+        { startSec: 48, endSec: 703 },
+        { startSec: 703, endSec: 1361 },
+        { startSec: 1361, endSec: 1408 },
+      ],
+      actualDurationSec: 1408,
+      expectedRuntimeMin: 11,
+    });
+    expect(c.kind).toBe("paired-split-candidate");
+    expect(c.splitOutputs?.oddKeep).toEqual([{ startSec: 48, endSec: 703 }, { startSec: 1361, endSec: 1408 }]);
+    expect(c.splitOutputs?.evenKeep).toEqual([{ startSec: 703, endSec: 1361 }, { startSec: 1361, endSec: 1408 }]);
+  });
+
   it("rejects files that are not long paired shapes", () => {
     expect(detectSplitPairedCandidate({ chapters: [], actualDurationSec: 1430, expectedRuntimeMin: 11 }).kind).toBe("insufficient-evidence");
     const short = detectSplitPairedCandidate({
